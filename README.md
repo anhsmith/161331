@@ -1,2 +1,2 @@
 # 161331
-Content for 161331 Biostatistics
+Content for the 161331 Biostatistics course at Massey University.
