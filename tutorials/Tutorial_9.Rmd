@@ -1,0 +1,252 @@
+---
+title: "Tutorial 9 - Random Effects in R"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+
+```
+
+## Analysis of pulp data 
+
+Adapted from [a lab](http://ms.mcmaster.ca/~bolker/classes/s756/labs/mixlab.pdf), written by Ben Bolker, McMaster University, under [Creative Commons attribution-noncommercial license](https://creativecommons.org/licenses/by-nc/3.0/).
+
+We will analyse data on the brightness of paper sourced from four different operators working in a paper factory.
+
+A question of interest is whether the variability among operators is negligible or not.
+
+### Text summaries
+
+```{r, echo=TRUE}
+## If you don’t have it installed already, install.packages("faraway")
+library(faraway)
+data(pulp)
+```
+
+Have a look at the data. If you are worried about ‘data snooping’ (i.e., developing and testing the hypotheses using the same data), then make sure that you decide beforehand (and if necessary write down) your hypotheses, which analyses you plan do to, and why. Proceeding with analysis without doing at least cursory textual and graphical summaries of the data is silly.
+
+```{r, echo=TRUE}
+summary(pulp)
+```
+
+There is one numerical response and one categorical predictor.
+
+```{r, echo=TRUE}
+table(pulp$operator)
+```
+
+This is a small dataset: 5 measurements from each of 4 operators.
+
+Let's see the means and standard deviations of the response variable `bright` for each `operator`:
+
+
+```{r}
+pulp %>% 
+  group_by(operator) %>%
+  summarise(Mean = mean(bright), 
+            SD = sd(bright))
+```
+
+The means aren't very different, but the standard deviations are very small.
+
+### Graphical summaries
+
+Now let's make some plots.
+
+```{r}
+pulp %>% ggplot() +
+  aes(x=operator, y=bright) +
+  geom_boxplot()
+```
+
+Boxplots give you a 5-number summary (minimum or something close to it, first quartile, median third quartile, maximum or something close to it) of each group of values. 
+
+Now, there are only 5 observations per group here, so boxplots are a little silly. Let’s add the individual points to the plot (adding a little jitter to show overlaying points).
+
+
+```{r}
+pulp %>% ggplot() +
+  aes(x=operator, y=bright) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, col = 2)
+```
+
+
+### Linear fixed-effect model
+
+In such a simple dataset, there is going to be very little practical difference between treating operator as fixed vs random, but the minor differences are somewhat educational.
+
+Let's fit the model as a fixed effect using `lm`, and use two different functions to test (`aov` and `anova`):
+
+```{r, echo=TRUE}
+m1 <- lm(bright ~ operator, data=pulp)
+m1 %>% aov %>% summary
+```
+
+We can also use the `anova` function to explicitly test the model against a null model with only an intercept (again with the same results):
+
+```{r, echo=TRUE}
+m0 <- update(m1, . ~ . -operator)
+anova(m0,m1)
+```
+
+These results tell us there's something going on with `operator`, when it is treated as a fixed effect. We have evidence against the null hypothesis that all the means are the same. 
+
+If we wanted to treat `operator` as a random effect, we can apply 'the ANOVA method' to the values in the output above to estimate the variance components:
+
+```{r, echo=TRUE}
+# var_operator = (MS_operator - MS_residuals)/n, were n = number of replicates per group
+(0.4467 - 0.1062)/5
+```
+
+We estimate that the variance in the mean brightness among operators is `r round((0.4467 - 0.1062)/5, 3)`. 
+
+
+**Classical random-effect model**
+
+The `aov()` function allows a simple form of random effects estimation, via the `Error` specification:
+
+```{r, echo=TRUE}
+a1 <- aov(bright~Error(operator),data=pulp)
+(s1 <- summary(a1))
+```
+
+This tells R to treat `operator` as an “Error” term — in other words, to acknowledge that there is sampling error (due to having in our dataset only a subset of the total population of operators) and thus to treat it as a random effect. This command does not give us significance tests though. We can (though not particularly conveniently) test the hypothesis that the among-operator variance is zero by using `pf(...,lower.tail=FALSE)` to compute the appropriate upper tail area:
+
+```{r, echo=TRUE}
+pf(0.44667/0.10625,df1=3,df2=16,lower.tail=FALSE)
+```
+
+In this case, the p-values are identical whether we treat operator as a random or a fixed effect. 
+
+I did the test above by looking at the results from summary and plugging the appropriate numbers into pf. As a general practice, it is better to specify this test based on digging the values out from inside the s1 object, but this is actually a tremendous nuisance because of the way the results are organised internally: it takes quite a bit of digging around with str to figure out what to extract.
+
+```{r, echo=TRUE}
+MSoperator <- s1[["Error: operator"]][[1]][["Mean Sq"]]
+MSwithin <- s1[["Error: Within"]][[1]][["Mean Sq"]]
+DFoperator <- s1[["Error: operator"]][[1]][["Df"]]
+DFwithin <- s1[["Error: Within"]][[1]][["Df"]]
+pf(MSoperator/MSwithin, DFoperator, DFwithin, lower.tail=FALSE)
+```
+The bottom line is that, while you can do ANOVA on classical balanced designs in R, it is not very convenient to do so. In particular, the classical machinery provided by R is not well geared to doing F-tests of random effects; most of the testing framework assumes that you want to test particular fixed effects with appropriate error terms.
+
+This is perhaps because, in the classical experimental design framework, the random effect terms (e.g. experimental block) are all nuisance variables that are neither of interest in themselves nor dispensable if they turn out to be non-significant. In contrast, in genetics—the other historical source of random and mixed effects ANOVA—the random effects are of interest.
+
+
+
+**Random-effect model fit using `lme4`**
+
+In lme4, random effects are expressed in a single formula along with fixed effects, as terms of the form (effect|group).
+
+```{r, echo=TRUE}
+library(lme4)
+m3 <- lmer(bright~(1|operator),data=pulp)
+summary(m3)
+```
+
+We see that the REML variance components estimates are
+
+$\hat \sigma_{operator}^2=0.06808$ and $\hat \sigma^2=0.10625$, which are identical to the estimates obtained via ANOVA method.
+
+
+The estimated intraclass correlation is given by
+
+```{r, echo=TRUE}
+0.06808/(0.06808+0.10625)
+```
+
+showing that 39% of variability in brightness of paper is due to operator.
+
+
+**Hypothesis Testing**
+
+A hypothesis of interest here is 
+
+$H_0: \hat \sigma_{operator}^2=0$
+
+In other words we are interested in whether the variability among operators is negligible or not.
+
+To do this, we create a reference model including the random factor, and a nested model excluding it. And because the nested model doesn’t have any random effect we cannot fit it using the `lmer` function from `lme4` package.
+
+We use the function `gls` from `nlme` package to create the nested model since it does not require random effects like lme.
+
+```{r, echo=TRUE}
+#Unfortunately, lme4 and nlme don't play nicely together so you should remove one before
+#trying to use the other.
+detach(package:lme4, unload=TRUE)
+library(nlme)
+nested <- gls(bright~1, data=pulp) 
+nested$logLik 
+```
+
+Ou reference model is m3 we fitted above. 
+
+```{r, echo=TRUE}
+summary(m3)$logLik
+```
+
+The likelihood ratio test statistic is
+
+```{r, echo=TRUE}
+#G2 = 2(l(R) - l(N))
+G2 = 2*(as.numeric(summary(m3)$logLik) -  nested$logLik) 
+G2 
+```
+
+Remember… the distribution under the null hypothesis is a mixture of $\chi_0^2$ + $\chi_1^2$, thus  
+p-value is given by
+
+```{r, echo=TRUE}
+0.5*pchisq(G2,df=0,lower.tail = FALSE)+0.5*pchisq(G2,df=1,lower.tail = FALSE)
+```
+
+The small p-value suggests that we have sufficient evidence against the null hypothesis. 
+Our conclusion is that brightness variability among operators is not negligible.
+
+
+```{r, echo=FALSE}
+#This answer can be obtained directly from `anova.lme`. However here need to remember to multiply the p-value by 0.5.
+# This is what the book says, but didn't work for me!
+#anova.lme(refm,nested)
+```
+
+## Exercise.
+
+A nutritionist conducted a study to assess the nutritional status of children enrolled in early childhood centres (ECC) in a city. There were a total of 6649 children enrolled in ECCs, distributed among 40 centers (ECCs). To collect the information, she randomly selected 5 centers and then randomly selected a number of children in each center. The number of childreen observed in each center were not the same.
+Among other characteristics, she collected information on children's body mass index (BMI). A question of interest was whether the center (ECC) factor had an influence on BMI.
+
+The `BMI.txt`file available on STREAM site contain the dataset described above.
+
+
+a)	Why the factor `ecc` (center) should be treat as random in this example?
+
+Following the steps of the previous example (and the instructions below), analyse this dataset and write down your findings. 
+
+b)	Import and inspect the data by checking the number of factor levels and number of replicates per level.
+
+```{r}
+bmi <- read.table("BMI.txt", head=TRUE)
+```
+
+
+c)	Get some descriptive statistics, in particular mean and standard deviation per group.
+d)	Get a graphical summary. What can be said about intraclass correlation?
+e)	Calculate the variance components estimates using the ANOVA method.
+
+Remember the ANOVA estimate of variance components are:
+$\hat{\sigma}^2=MS_{Error}$ and $\hat{\sigma}_{\alpha}^2= \frac{MS_{Group} - MS_{Error}}{n}$, where the denominator $n$ is the number of observations per group.
+
+Remark. In this example, the design is unbalanced, i.e., the number of observations per gruop ($n_i$) is not constant, which impose additional difficulty. Therefore, to estimate 
+$\hat{\sigma}_{\alpha}^2$ we will replace $n$ in the denominator by $k_1.$
+
+$\hat{\sigma}_{\alpha}^2= \frac{MS_{Group} - MS_{Error}}{k_1}$, where
+
+$k_1=\frac{1}{I-1}[N-\frac{\sum_i n_i^2}{N}]$, where $N$ is the total number of observations and I is the number of groups. 
+
+
+f)	Fit a one-way random-effect linear model using `lmer()` from `lme4` package. What are the REML estimates of the variance components? Compare them with the ANOVA estimates.
+g)	Calculate the intraclass correlation coefficient.
+h)	Test the hypotheses H_0: $\sigma^2_{ecc} =0$ vs $H_0: \sigma^2_{ecc} > 0$ and write down your conclusion.

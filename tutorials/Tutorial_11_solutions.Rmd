@@ -1,0 +1,332 @@
+---
+title: "Lab 11 - Repeated Measures ANOVA in R"
+author: "Julio Pereira"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Pain Relief Data Analysis in R
+
+In this tutorial we are going to analyse the data resulting from the experiment described on **E.g. 2** of our lecture. In that study, to find out the effect of a drug as an analgesic in four participants, three pain relief measures were taken, one at the beginning of the experiment (at 3 pm), another at 5 pm and the last at 7 pm.
+
+\begin{tabular}{cccc}
+\hline
+id & t1 & t2 & t3\\
+\hline
+1 & 45 & 50 & 55\\
+2 & 42 & 42 & 45\\
+3 & 36 & 41 & 43\\
+4 & 39 & 35 & 40\\
+5 & 51 & 55 & 59\\
+\hline
+\end{tabular}
+
+- In this example, `Time` (Time 1, Time2, Time 3) is a fixed effect (within subject variable). 
+- The response is `pain relief` ranging from 0:‘no pain’ to 100:‘worst pain’ (or ‘pain as bad as it could be’).
+- Subject is a random effect, crossed with `Time` (which is a fixed effect).
+
+
+We will perform repeated measures anova using `ez` package. 
+
+1) **Load the packages you need**
+
+\scriptsize
+```{r,echo=TRUE, message=FALSE, warning=FALSE}
+ if(!require(dplyr)) install.packages("dplyr")
+ library(dplyr)                                
+ if(!require(ez)) install.packages("ez") 
+ library(ez) # Perform repeated measure anova in an 'ez' (easy) way.
+  if(!require(rstatix)) install.packages("rstatix") 
+ library(rstatix)
+library(tidyverse)
+require(ggplot2)
+
+```
+
+
+2) **Load or enter the data**
+
+
+To perform the analysis we need to read the data into a R `dataframe` in the long format.
+
+```{r, echo=TRUE}
+ID <- as.factor(rep(1:5,each=3))
+Time <- rep(c("T1","T2","T3"),5)
+Pain <- c(45, 50, 55, 42, 42, 45, 36, 41, 43, 39, 35, 40, 51, 55, 59)
+dt <-data.frame(ID,Time,Pain)  
+  
+```
+
+- Are the data in the correct format for analysis? 
+
+*Inspecting the dataset to make sure it is in the correct format for analysis*
+
+```{r, echo=TRUE}
+dt
+```
+
+- ID and Time must be read as factors
+- Pain must be numeric
+
+
+```{r, echo=TRUE}
+str(dt) 
+```
+
+Since `Time` appears as "chr" - character we will convert it into a factor:
+
+```{r, echo=TRUE}
+dt$Time <- factor(dt$Time) 
+```
+
+
+3) **Subjects profiles plot**
+
+```{r,echo=TRUE}
+ggplot(dt,aes (x = as.numeric(as.factor(Time)), y = Pain, color = ID)) +
+  geom_point() +
+  geom_line() +
+  theme(legend.position = "none")
+```
+
+- In general it seems that the greatest pain relief is felt at time 1.
+- Some individuals feel more pain than others regardless the time in wich the pain is measured.
+
+4) **Checking for normality**
+
+One of the assumptions of repeated measures ANOVA is normality. In order to check this assumption we use
+the `shapiro_test()` function from `rstatix` package.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# This function requires the `rstatix` package. 
+dt %>% group_by(Time) %>%
+shapiro_test(Pain) 
+
+# The standard shapiro.test() function doesn't require a package
+# E.g. For checking normality in group T1, you could use:
+# shapiro.test(subset(dt, Time == 'T1')$Pain)
+```
+
+Is there any violation of normality assumption?
+
+- No, There is no evidence of lack of normality (p-values > 0.05).
+
+
+5) **Fitting the model for Repeated Measures.**
+
+```{r, echo=TRUE}
+mod.ANOVA <- ezANOVA(data = dt,
+dv = Pain,
+wid = ID,
+within = Time,
+detailed = TRUE,
+type = 3)
+# dv = dependent variable (response,i.e, "Pain")
+# wid = variable identifying the subjects: "ID"
+# within = within-subjects variable (fixed factor), i.e, "Time"
+# type = Sum of Squares type (default é o type II, type III is
+# default in SPSS)
+# detailed = TRUE, for a detailed summary output
+```
+
+
+6) **Interpreting the output**
+
+```{r, echo=TRUE}
+mod.ANOVA
+```
+
+- Is the within factor effect significant? In other words, is there evidence against the null?
+
+$H_0$: There is no difference among Times (T1, T2 and T3)
+
+Yes, we do reject the null as the $p-value$ for `Time` factor is less than 0.05 ($p-value = 0.0107$).
+We conclude that `Time` factor has an effect on pain relief, i.e. the pain relief depends on the time it is measured.
+
+- Is the sphericity assumption met? Is your conclusion above is valid?
+
+```{r, echo=TRUE}
+mod.ANOVA$`Mauchly's Test for Sphericity`
+```
+ 
+ 
+The Mauchly’s test for sphericity presented $p-value =0.158$, which is greater than $0.05$. This indicates we don't have evidence to reject the null 
+
+$H_0$: The sphericity condition is satisfied
+
+
+Therefore, the F-ratio from ANOVA is correct and the above conclusion is correct.
+
+If we had evidences of violation of sphericity condition, we should test the effect of `Time` factor based on the Greenhouse-Geisser corrected p-value. 
+
+7) **Post-hoc test**
+
+Since the `Time` factor is significant we will compare pairs of `Time` levels.
+
+```{r, echo=TRUE}
+pairwise.t.test(dt$Pain, dt$Time, paired = TRUE,
+p.adjust.method = "bonferroni")
+```
+
+Getting descriptive statistics summary (require `rstatix` package)
+
+```{r, echo=TRUE}
+dt %>% group_by(Time) %>%
+summarise(Mean=round(mean(Pain),2),
+SD=round(sd(Pain),2), n=n())
+```
+
+
+Analyzing the output we conclude that pain relief at time 1 and time 3 is not the same. The pain relief is greater at time 1 (lower scores for pain at time 1).
+
+
+# Exercise.
+
+After developing a cereal bar formulation with high-fiber content a researcher decided to test the effect of adding anthocyanin extract from Jussara palm fruits (Euterpe edulis Martius) on the flavor of her product.
+
+Four concentrations of anthocyanin were tested: T0: 0%; T1: 0.25%, T2: 1% and T3: 2%.
+
+Thirty individuals tasted the cereal bars with each of the four treatments. The response variable taste rating ranged from 0: disgusting to 10: delicious). The dataset `cerealbar1.txt` obtained from the experiment is available on the STREAM website. 
+
+Following the steps of the previous example, analyse this data and write down your conclusions. If necessary, include the post-hoc test in your analysis. 
+
+
+**Load the data**
+
+
+To perform the analysis we need to read the data into a R `dataframe` in the long format.
+
+```{r, echo=TRUE}
+#setwd("C:\\Users\\ricar\\Documents\\Biostatistics\\Module 3 - Mixed models\\Tutorials")
+cereal1 <- read.table("cerealbar1.txt", head=TRUE)
+
+```
+
+
+- Are the data in the correct format for analysis? 
+
+*Inspecting the dataset to make sure it is in the correct format for analysis*
+
+```{r, echo=TRUE}
+cereal1
+```
+
+No, the data is in the wide format. We need to change it from `wide` to `long`.
+
+\scriptsize
+
+```{r, echo=TRUE}
+
+# Reshaping the data
+dt <- cereal1 %>% pivot_longer(c("T0", "T1", "T2", "T3"), names_to = "Treatments", values_to="Rate")
+head(dt,10)
+```
+
+- ID and treatments must be read as factors
+
+
+```{r, echo=TRUE}
+dt$ID <- as.factor(dt$ID)
+dt$Treatments <- as.factor(dt$Treatments)
+
+```
+
+
+```{r, echo=TRUE}
+str(dt) 
+```
+All looks good now, the data is in the correct format.
+
+**Subjects profiles plot**
+
+```{r,echo=TRUE}
+# library(ggplot2)
+ggplot(dt,aes (x = as.numeric(as.factor(Treatments)), y = Rate, color = ID)) +
+  geom_point() +
+  geom_line() +
+  theme(legend.position = "none")
+```
+
+**Checking for normality**
+
+One of the assumptions of repeated measures ANOVA is normality. In order to check this assumption we use
+the `shapiro_test()` function from `rstatix` package.
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+# This function requires the `rstatix` package. 
+library(rstatix)
+dt %>% group_by(Treatments) %>%
+shapiro_test(Rate) 
+
+```
+
+Is there any violation of normality assumption?
+
+- No, there is no evidence of lack of normality (p-values > 0.05).
+
+**Fitting the model for Repeated Measures.**
+
+```{r, echo=TRUE, message=FALSE}
+#library(ez)
+mod.ANOVA <- ezANOVA(data = dt,
+dv = Rate,
+wid = ID,
+within = Treatments,
+detailed = TRUE,
+type = 3)
+# dv = dependent variable (response)
+# wid = variable identifying the subjects: "ID"
+# within = within-subjects variable (fixed factor)
+# type = Sum of Squares type (default é o type II, type III is
+# default in SPSS)
+# detailed = TRUE, for a detailed summary output
+```
+
+**Interpreting the output**
+
+```{r, echo=TRUE}
+mod.ANOVA
+```
+
+We reject the null as the $p-value$ for `Treatments` is less then 0.05 ($p-value = 1.46\times 10^{-7}$).
+
+$H_0$: There is no difference among Treatments (T0, T1, T2 and T3)
+
+
+We conclude that `Treatment` factor has an effect on taste, i.e. taste depends on the concentration of anthocyanin added to the formulation.
+
+- Checking the sphericity assumption. 
+
+```{r, echo=TRUE}
+mod.ANOVA$`Mauchly's Test for Sphericity`
+```
+ 
+ 
+The Mauchly’s test for sphericity presented $p-value =0.07$, which is greater than $0.05$. This indicates we don't have evidence to reject the null 
+
+$H_0$: The sphericity condition is satisfied
+Therefore, the F-ratio from ANOVA is correct and the above conclusion is correct.
+
+If we had evidences of violation of sphericity condition, we should test the effect of `Time` factor based on the Greenhouse-Geisser corrected p-value. 
+
+7) **Post-hoc test**
+
+Since the `Treatment` factor is significant we will compare pairs of `Treatment` levels.
+
+```{r, echo=TRUE}
+pairwise.t.test(dt$Rate, dt$Treatment, paired = TRUE,
+p.adjust.method = "bonferroni")
+```
+
+Getting descriptive statistics summary (require `rstatix` package)
+
+```{r, echo=TRUE}
+dt %>% group_by(Treatments) %>%
+get_summary_stats(Rate, type = "mean_sd")
+```
+
+Only treatments T0 and T1 don't differ with regards their effect on taste.
+Treatment T3 is the one associated with the highest rates for taste.

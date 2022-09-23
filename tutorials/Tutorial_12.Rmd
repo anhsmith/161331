@@ -1,0 +1,357 @@
+---
+title: |
+  | 161331 Week 12 Computer Tutorial
+  | Longitudinal Data
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+
+```{r loadlib, message=FALSE}
+library(tidyverse)
+library(nlme)
+library(lme4)
+theme_set(theme_bw())
+```
+
+
+# Load the `temp` data
+
+The dataset in 'temp-reduced.txt' gives the soil temperature at 6 different depths (5, 10, 15, 20, 25 and 30 cm below the surface) at 56 different locations. There are three variables: `temperature` (continuous), `depth` (continuous, but regular), and `location` (factor).
+
+Read in the dataset “temp2.csv” and assign to object `temp`. 
+
+```{r}
+temp <- read_csv('temp2.csv') 
+temp
+```
+
+# Initial plots
+
+We can easily plot all the data as depth by temperature.
+
+```{r fig.dim=c(5,3)}
+# set up the basic ggplot object, 'gt'
+gt <- ggplot(data=temp, aes(x = depth, y = temperature)) 
+
+# call gt and add jittered points
+gt + geom_jitter(width = 0.5, alpha = .4) # alpha makes the points transparent
+```
+
+Let's add some trend lines.
+
+```{r fig.dim=c(5,3)}
+gt + 
+  geom_jitter(width = 0.5, alpha = .4) +
+  geom_smooth() +                     # add smooth line in blue
+  geom_smooth(method = "lm", col = 2) # add linear fit in red
+
+```
+
+Do you think that the linear fit does a good job, or do you think the model is going to need some curvature?
+
+Now, this gives us a useful impression of the overall pattern in the data, but it ignores an important structure in the data: the data are grouped by location, and each location has it's own temperature profile across the range of depths. 
+
+Let's plot the locations as individual lines:
+
+```{r fig.dim=c(8,5)}
+gt + geom_line(aes(col=factor(location)), alpha = .4)
+```
+
+Alternatively, we can plot the locations as individual panels.
+
+```{r facet_plot1, fig.dim=c(8,8)}
+gt + 
+  geom_point() +
+  facet_wrap( ~ location) # note, the tilde symbol "~" is below the Esc button on your keyboard
+```
+
+Things to note:
+
+ 1. Temperature declines with depth at all locations.
+ 2. There seems to be some curvature (non-linear) trend in the decline in temperature with depth.
+ 3. The starting temperature (at 5 m depth) varies a lot across the locations.
+ 4. The rate of decline varies across the locations.
+ 5. The rate of decline seems to be steeper for locations that start warmer. So, we can expect the random slopes to be negatively correlated with the random intercepts.
+
+These observations give us an idea of what sort of things we might include in our model.
+
+
+# Modelling
+
+## Explanatory *vs* predictive modelling
+
+In general, statistical modelling can be said to serve two purposes: explanation and prediction. 
+
+Explanatory models are fit to understand causal processes, to test for differences in treatments or some other explanatory factor. With these models, there is often a particular variable, or set of variables of primary interest. But the model might also include other variables that are not so interesting to us, but we include them because we know they are important in explaining variation in our response variable, or we want to condition on them when evaluating the more interesting effects. 
+
+Predictive modelling is less about evaluating evidence for or quantifying effects of interest. The main objective of predictive modelling is to build a model that will make accurate predictions for new data. Predictive accuracy will be greatest if the model structure is a good approximation of the processes that generated the data.
+
+The idea of the present modelling exercise is more towards the predictive modelling side. There is no treatment variable, for example. We don't have any reason to doubt that temperature changes as we go deeper. We just want to fit a 'good' model, perhaps with the objective of predicting the temperature at new locations with some appropriate level of uncertainty.
+
+## Fixed polynomial with random intercepts
+
+Our first model will be fairly simple -- no doubt, too simple. We can see that `temperature` has a curvilinear relationship with `depth`, so we'll use a polynomial for the fixed part of the model. We can see that the intercepts are definitely different among the locations too, so we'll include a random intercept for `location`.
+
+Remember, there are two main packages for fitting mixed models: `nlme` (with the `lme()` function) and `lme4` (with the `lmer()` function). The syntax is pretty similar, but `nlme` uses a separate argument, `random`, for the random effects. Both use Restricted Maximum Likelihood, or REML, to fit the model. 
+
+There is also the `glmmTMB` package, with which I believe the syntax is more similar to `lme4`, but has a slightly different algorithm for fitting the model.
+
+These models are the essentially the same:
+
+```{r}
+lmer(temperature ~ poly(depth,2) + (1|location), data=temp) # lme4 package
+lme(temperature ~ poly(depth,2), random = ~1|location, data=temp) # nlme package
+glmmTMB::glmmTMB(temperature ~ poly(depth,2) + (1|location), data=temp) # glmmTMB package
+```
+
+For now, let's proceed with the `nlme` package.
+
+```{r}
+m_d2_i <- lme(temperature ~ poly(depth,2), random = ~1|location, data=temp) 
+summary(m_d2_i)
+```
+
+The intercept, which is averaged across locations, is 16 degrees. Does that look right, according to our figure? The intercept is usually the expected value of *y* when *x* = 0. But most of the lines cross 16 degrees in the *middle* of the series. Why is this model putting the intercept in the middle of the series?
+
+The `poly()` function converts your *x*-variable into two new variables: a linear one and a quadratic one. It does so in a way that the two variables are uncorrelated, and the easiest way to do that is to centre the variable at zero. 
+
+You can see the values of the two polynomial variables for `depth`, along with actual `depth`, here: 
+```{r}
+cbind( depth = seq(5,30,by=5),
+       poly1 = predict(poly(temp$depth,2), seq(5,30,by=5)))
+```
+So, when you fit a polynomial model with `poly()`, the intercept becomes the expected value of *y* at the middle value of *x*. Here, the middle value is 17.5 m depth.
+
+At a depth of 17.5 m then, the predicted average temperature is 16 degrees. 
+
+Now, the only random effect in the model is for intercepts -- the intercept for each location is expected to be slightly different from the *overall* intercept (of 16). Here, the SD for this random effect is 0.81. 
+
+So, on average, the temperature at a depth of 17.5 m is 16.02 degrees, but this varies among locations by about 0.81. We'd expect the temperature at 17.5 m to be between `r 16.02-2*.81` and `r 16.02+2*.81` (± 2 SD) for 95% of locations.
+
+Do we need this random term? Let's compare our model with one that excludes it. 
+
+```{r}
+AIC( m_d2_i, lm(temperature ~ poly(depth,2), data=temp) )
+```
+
+Well, that's pretty clear.
+
+Let's plot the predictions over the raw data on the plot. First, we're going to add the fitted values to the `temp` data using the `fitted()` function, then feed this data to `ggplot`.
+
+```{r facet_plot_m_d2_i, fig.dim=c(8,8)}
+temp %>%
+  add_column(preds = fitted(m_d2_i)) %>%
+  ggplot(aes(x = depth, y = temperature)) +
+    geom_point() +
+    geom_line(aes(y = preds), col = 2) + # model fit as lines
+    facet_wrap( ~location) +
+    ggtitle("temperature ~ poly(depth,2), random = ~1|location")
+```
+The points are the raw data, and the lines are the model predictions.
+
+The random intercepts allow each of these lines to differ in *height*. You can see this, as all the lines fit well to the data in the middle of the series (i.e., at depths of 15-20 m). However, there are no random effects for the *slopes* -- neither for the linear or the quadratic (curvy) component. This is why the fit isn't so good at the more extreme depths (5 m and 30 m) for some locations, especially those in the bottom row.
+
+As said above, the lines are flexible in terms of their height, but not their slope or shape. We can see this by plotting all 56 fitted lines together -- the heights are different, but the shapes are not.
+
+```{r fig.dim=c(8,5)}
+temp %>%
+  add_column(preds = fitted(m_d2_i)) %>%
+  ggplot(aes(x = depth, y = preds, col = factor(location))) +
+    geom_line(alpha = .4) +
+    ggtitle("temperature ~ poly(depth,2), random = ~1|location")
+```
+We can probably do better by allowing the lines to have more flexibility. 
+
+## Fixed polynomial with random intercepts and random slopes
+
+```{r}
+m_d2_is <- lme(temperature ~ poly(depth,2), random = ~poly(depth,1)|location, data=temp) 
+summary(m_d2_is)
+```
+The coefficient for the linear effect (i.e., the slope) is -43. The SD for random effect for slope is 10.25, so this model has predicted that the slope paramater is -43 on average, but it varies between about `r -43 - 2*10.25` and `r -43 + 2*10.25`.
+
+We can also see the correlation between the slope random effect and the intercept random effect is -0.62. We predicted this in our initial observations of the plotted data above (point 5 in the list). Locations that are warmer at the surface do indeed appear to decline in temperature with depth more steeply than locations that are cooler at the surface.
+
+Let's plot the results.
+
+```{r facet_plot_m_d2_is, fig.dim=c(8,8)}
+temp %>%
+  add_column(preds = fitted(m_d2_is)) %>%
+  ggplot(aes(x = depth, y = temperature)) +
+    geom_point() +
+    geom_line(aes(y = preds), col = 2) + # model fit as lines
+    facet_wrap( ~location) +
+    ggtitle("temperature ~ poly(depth,2), random = ~poly(depth,1)|location")
+```
+
+That looks like a much better fit, especially for the locations in the bottom row. 
+
+Let's see the variation among lines. 
+
+```{r fig.dim=c(8,5)}
+temp %>%
+  add_column(preds = fitted(m_d2_is)) %>%
+  ggplot(aes(x = depth, y = preds, col = factor(location))) +
+    geom_line(alpha = .4) +
+    ggtitle("temperature ~ poly(depth,2), random = ~poly(depth,1)|location")
+```
+
+We see now that the overall slope does differ among locations.
+
+## Fixed polynomial with random intercepts, random slopes, and random shapes
+
+Now, we'll see if we need even more flexibility. Specifically, do we need the degree of curvature (the second-order polynomial) to vary among locations?
+
+```{r}
+m_d2_isc <- lme(temperature ~ poly(depth,2), random = ~poly(depth,2)|location, data=temp) 
+summary(m_d2_isc)
+```
+Now, we'll plot these new lines in blue on top of the red lines from the previous model. 
+
+```{r facet_plot_m_d2_isc, fig.dim=c(8,8)}
+temp %>%
+  add_column(preds1 = fitted(m_d2_is)) %>%
+  add_column(preds2 = fitted(m_d2_isc)) %>%
+  ggplot(aes(x = depth, y = temperature)) +
+    geom_point() +
+    geom_line(aes(y = preds1), col = 2, alpha = .4) + 
+    geom_line(aes(y = preds2), col = 4, alpha = .4) +
+    facet_wrap( ~location) +
+    ggtitle("RED: ~poly(depth,1)|location    BLUE: ~poly(depth,2)|location")
+```
+These models are giving very similar lines. Let's plot them together now.
+
+```{r fig.dim=c(8,5)}
+temp %>%
+  add_column(preds = fitted(m_d2_isc)) %>%
+  ggplot(aes(x = depth, y = preds, col = factor(location))) +
+    geom_line(alpha = .4) +
+    ggtitle("temperature ~ poly(depth,2), random = ~poly(depth,2)|location")
+```
+
+
+## Model comparison
+
+So, do you think we need the random second-order polynomial term? We'll check using the AIC.
+
+```{r}
+AIC(m_d2_is, m_d2_isc)
+```
+The AIC is telling us that the more complex model is favoured. 
+ 
+Does the likelihood ratio test also agree?
+ 
+```{r}
+anova(m_d2_i, m_d2_is, m_d2_isc)
+```
+ 
+Yes, the model with random intercepts, random slopes, and random quadratic curvature (`m_d2_isc`) explains significantly more variation than the one with just random intercepts (`m_d2_i`), and the one with random intercepts and random slopes (`m_d2_is`).
+
+## Fitted values of parameters
+
+Another useful function is the `intervals()`, as it gives 95% confidence intervals for all the estimated parameters, including fixed and random effects and correlations.
+
+```{r}
+intervals(m_d2_is)
+intervals(m_d2_isc)
+```
+
+At the very bottom of these output, we have the residual standard error (here called the "`Within-group standard error`"). This is the average amount by which our model's predictions are wrong. 
+
+## Fitted values of random effects
+
+The output from `intervals()` shows the SDs and correlations for the random effects, but it doesn't show the location-level fitted random effects, that is, the deviations of each location from the overall intercept, slope, etc. These are sometimes called "Best Linear Unbiased Predictors", or "BLUPs".
+
+For this, you can use the `ranef()` function.
+
+```{r}
+ranef(m_d2_isc) %>% head
+```
+And to get the fixed coefficients...
+
+```{r}
+fixef(m_d2_isc)
+```
+
+## Predictions
+
+To make a prediction for the temperature at location 2 at a depth of 10 m by hand, using the output from `fixef` and `ranef` above, you can do this:
+
+```{r}
+# coefficients for location 2 = fixed effect + location2 effect
+int = 16.022159 + 0.1778267 
+poly1 = -42.995922 + 6.239037
+poly2 = 8.506283 + 2.73550782
+
+# get values of polynomial variables for depth
+x10_poly1 = predict(poly(temp$depth,2), 10)[1] 
+x10_poly2 = predict(poly(temp$depth,2), 10)[2]
+
+# put 'em together
+int + poly1 * x10_poly1 + poly2 * x10_poly2
+
+# check 
+temp %>% 
+  add_column(fit = fitted(m_d2_isc)) %>% # add fitted values
+  dplyr::filter(depth == 10, location == 2) # choose the one row 
+```
+The `fit` is 17.8, just like it was in our by-hand calculation. 
+
+
+
+# Sleep deprivation - exercise
+
+*Belenky G, et al. (2003) Patterns of performance degradation and restoration during sleep restriction and subsequent recovery: a sleep dose-response study. **Journal of Sleep Research** 12, 1 - 12.*
+
+The average reaction time (across a series of tests) of 18 truck drivers was measured every day for 10 days, during which the participants were restricted to 3 hours of sleep per night.
+
+The variables are
+
+- Reaction: reaction time (continuous, in milliseconds)
+- Days: 0 to 10 - number of days of sleep deprivation
+- Subject: factor with 18 levels
+
+```{r}
+data(sleepstudy, package = "lme4")
+str(sleepstudy)
+```
+
+1) Plot the data: `Reaction vs. Day`, displaying a panel for each subject. Using `geom_smooth(method = "lm")` add linear trend lines.
+
+What do the plots reveal? 
+
+- Is there a general pattern through time?
+
+- Is there linear relationship?
+
+- Does the pattern vary among subjects? In terms of slope and/or 
+intercept?
+
+
+2) Let the models speak. Use the `lme` function from `nlme` package to fit a linear mixed-effects model to `Reaction` versus `Days`, with random effects for both intercept and slope.
+
+a) Find the REML estimates of $\sigma_{intercept},$ $\sigma_{slope}$ and $\sigma$.
+
+b) How much do the intercepts (initial Reaction times) vary among the subjects?
+
+c) How much do the slopes vary among the subjects? 
+
+
+3) Fit a linear mixed-effects model with random effects for the intercept only (no random effects for the slope). Compare this model to the model in 2) using `anova`. Which model should be preferred?  
+
+
+4) Using `summary` print and interpret the estimates of fixed effects.
+
+
+
