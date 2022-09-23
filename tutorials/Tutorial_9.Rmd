@@ -1,24 +1,24 @@
 ---
-title: "Tutorial 9 - Random Effects in R"
+title: "Lab 9 - Random Effects in R"
+author: "Julio Pereira"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(ggplot2)
-library(tidyverse)
-
 ```
 
 ## Analysis of pulp data 
 
-Adapted from [a lab](http://ms.mcmaster.ca/~bolker/classes/s756/labs/mixlab.pdf), written by Ben Bolker, McMaster University, under [Creative Commons attribution-noncommercial license](https://creativecommons.org/licenses/by-nc/3.0/).
+(<http://ms.mcmaster.ca/~bolker/classes/s756/labs/mixlab.pdf>, 
+with credit to Ben Bolker, McMaster University)
 
-We will analyse data on the brightness of paper sourced from four different operators working in a paper factory.
 
-A question of interest is whether the variability among operators is negligible or not.
+In this part, you will analyse data collected on the brightness of paper among four different operators working in a paper factory.
 
-### Text summaries
+A question of interest is whether the variability among operators is negligible or not. 
+
+**Text summaries**
 
 ```{r, echo=TRUE}
 ## If you don’t have it installed already, install.packages("faraway")
@@ -26,83 +26,73 @@ library(faraway)
 data(pulp)
 ```
 
-Have a look at the data. If you are worried about ‘data snooping’ (i.e., developing and testing the hypotheses using the same data), then make sure that you decide beforehand (and if necessary write down) your hypotheses, which analyses you plan do to, and why. Proceeding with analysis without doing at least cursory textual and graphical summaries of the data is silly.
+You should always examine the data prior to analysis. If you are worried about ‘data snooping’ (i.e., developing and testing the hypotheses using the same data), then make sure that you decide beforehand (and if necessary write down) which analyses you plan do to, and why. Proceeding with analysis without doing at least cursory textual and graphical summaries of the data is insane.
 
 ```{r, echo=TRUE}
 summary(pulp)
 ```
 
-There is one numerical response and one categorical predictor.
+From this we can see that the data set is extremely simple (a single numerical response and a single categorical predictor). The number of operators is so small that we can immediately see the experimental design (5 measurements for each of 4 operators), but if necessary we could use
 
 ```{r, echo=TRUE}
 table(pulp$operator)
 ```
 
-This is a small dataset: 5 measurements from each of 4 operators.
-
-Let's see the means and standard deviations of the response variable `bright` for each `operator`:
+to get a full enumeration of the number of observations per operator (in this case, we could also increase the value of `maxsum` (default 7), which specifies how many levels of factors to report, e.g. `summary(pulp,maxsum=10)`: see `?summary.data.frame`). For more complicated data sets, table is really useful for figuring out the experimental design: how treatments are distributed among blocks, whether the design is balanced, etc.
 
 
-```{r}
-pulp %>% 
-  group_by(operator) %>%
-  summarise(Mean = mean(bright), 
-            SD = sd(bright))
-```
-
-The means aren't very different, but the standard deviations are very small.
-
-### Graphical summaries
-
-Now let's make some plots.
-
-```{r}
-pulp %>% ggplot() +
-  aes(x=operator, y=bright) +
-  geom_boxplot()
-```
-
-Boxplots give you a 5-number summary (minimum or something close to it, first quartile, median third quartile, maximum or something close to it) of each group of values. 
-
-Now, there are only 5 observations per group here, so boxplots are a little silly. Let’s add the individual points to the plot (adding a little jitter to show overlaying points).
-
-
-```{r}
-pulp %>% ggplot() +
-  aes(x=operator, y=bright) +
-  geom_boxplot() +
-  geom_jitter(width = 0.1, col = 2)
-```
-
-
-### Linear fixed-effect model
-
-In such a simple dataset, there is going to be very little practical difference between treating operator as fixed vs random, but the minor differences are somewhat educational.
-
-Let's fit the model as a fixed effect using `lm`, and use two different functions to test (`aov` and `anova`):
+We could go slightly further in getting summaries:
 
 ```{r, echo=TRUE}
-m1 <- lm(bright ~ operator, data=pulp)
-m1 %>% aov %>% summary
-```
+tmpf <- function(x) { round(c(Mean=mean(x),SD=sd(x)),3) }
+aggregate(bright~operator, data=pulp, FUN=tmpf)
 
-We can also use the `anova` function to explicitly test the model against a null model with only an intercept (again with the same results):
+```
+The command `stem(pulp$bright)` gives a text-based approximation of a histogram of the data (something of an anachronism at this point, but cute).
+
+**Graphical summaries**
+
+At this point it really makes much more sense to turn to graphical summaries. 
 
 ```{r, echo=TRUE}
-m0 <- update(m1, . ~ . -operator)
+with(pulp, plot(operator,bright))
+```
+
+Now, there are only 5 observations per group, so boxplot summaries are not particularly useful when we can easily view the actual data. Let’s add the individual points to the plot (adding a little jitter to show overlaying points).
+
+```{r, echo=TRUE}
+with(pulp, plot(operator,bright))
+with(pulp, points(jitter(as.numeric(operator)), bright, col="red"))
+```
+
+**Linear fixed-effect model**
+
+In such a simple case (and with a small number of treatment levels), there is going to be very little practical difference between treating operator as fixed vs random, but the minor differences are somewhat educational.
+
+Fitting the model as a fixed effect using lm, and using two ways of testing (aov and anova):
+
+```{r, echo=TRUE}
+m1 <- lm(bright~operator, data=pulp)
+summary(aov(m1))
+```
+
+Considering operator as `random`, we can use the above output to get the ANOVA variance components estimates:
+
+```{r, echo=TRUE}
+# sigma2_operator = (MS_operator - MS_residuals)/n, n=number of replicates per group
+(0.4467 - 0.1062)/5
+# sigma2 is given by MS_residulas = 0.1062
+```
+
+
+We can also use anova to explicitly test the model against a null model with only an intercept (again with the same results):
+
+```{r, echo=TRUE}
+m0 <- update(m1,.~.-operator)
 anova(m0,m1)
 ```
 
-These results tell us there's something going on with `operator`, when it is treated as a fixed effect. We have evidence against the null hypothesis that all the means are the same. 
-
-If we wanted to treat `operator` as a random effect, we can apply 'the ANOVA method' to the values in the output above to estimate the variance components:
-
-```{r, echo=TRUE}
-# var_operator = (MS_operator - MS_residuals)/n, were n = number of replicates per group
-(0.4467 - 0.1062)/5
-```
-
-We estimate that the variance in the mean brightness among operators is `r round((0.4467 - 0.1062)/5, 3)`. 
+We can see that there does appear to be a significant difference among the means of the operators. 
 
 
 **Classical random-effect model**
@@ -226,12 +216,6 @@ a)	Why the factor `ecc` (center) should be treat as random in this example?
 Following the steps of the previous example (and the instructions below), analyse this dataset and write down your findings. 
 
 b)	Import and inspect the data by checking the number of factor levels and number of replicates per level.
-
-```{r}
-bmi <- read.table("BMI.txt", head=TRUE)
-```
-
-
 c)	Get some descriptive statistics, in particular mean and standard deviation per group.
 d)	Get a graphical summary. What can be said about intraclass correlation?
 e)	Calculate the variance components estimates using the ANOVA method.
@@ -250,3 +234,4 @@ $k_1=\frac{1}{I-1}[N-\frac{\sum_i n_i^2}{N}]$, where $N$ is the total number of 
 f)	Fit a one-way random-effect linear model using `lmer()` from `lme4` package. What are the REML estimates of the variance components? Compare them with the ANOVA estimates.
 g)	Calculate the intraclass correlation coefficient.
 h)	Test the hypotheses H_0: $\sigma^2_{ecc} =0$ vs $H_0: \sigma^2_{ecc} > 0$ and write down your conclusion.
+
