@@ -18,6 +18,8 @@ knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
 ```{r setup_r, include=TRUE}
 library(ggplot2)
 library(tidyverse)
+## If you don’t have it installed already, install.packages("faraway")
+library(faraway)
 theme_set(theme_bw())
 ```
 
@@ -27,13 +29,12 @@ Parts of this tutorial were adapted from [a lab](http://ms.mcmaster.ca/~bolker/c
 
 We will start by analysing data on the brightness of paper sourced from four different operators working in a paper factory.
 
-A question of interest is whether the variability among operators is negligible or not.
+The research question is: Does the brightness of paper vary among operators?
+
 
 ## Text summaries
 
 ```{r, echo=TRUE}
-## If you don’t have it installed already, install.packages("faraway")
-library(faraway)
 data(pulp)
 ```
 
@@ -43,13 +44,13 @@ Have a look at the data. If you are worried about ‘data snooping’ (i.e., dev
 summary(pulp)
 ```
 
-There is one numerical response and one categorical predictor.
+There is one numerical response (`bright`) and one categorical predictor (`operator`).
 
 ```{r, echo=TRUE}
 table(pulp$operator)
 ```
 
-This is a small dataset: 5 measurements from each of 4 operators.
+This is a small dataset: 5 measurements of brightness from each of 4 operators.
 
 Let's see the means and standard deviations of the response variable `bright` for each `operator`:
 
@@ -97,35 +98,46 @@ m1 <- lm(bright ~ operator, data=pulp)
 m1 %>% aov %>% summary
 ```
 
-We can also use the `anova` function to apply a Likelihood Ratio Test, than tests the model with `operator` against a 'null' model with only an intercept (i.e., just estimating a single, overall mean).
+We can also use the `anova` function to test for an effect of `operator`. 
 
 ```{r, echo=TRUE}
 m0 <- update(m1, . ~ . -operator)
 anova(m0,m1)
 ```
 
-These results indicate a significant effect of `operator`, when treated as a fixed effect. We have evidence against the null hypothesis that all the means are the same. 
+The ANOVA F-test compares two models in terms of their Sums of Squares, or the variance in $y$ explained by the models. 
+
+The two models are: 
+
+1. `bright ~ 1`: a 'null' model with just a single intercept, that is, a single mean is estimated for all values of `bright`, ignoring `operator`, and 
+
+2. `bright ~ operator`: a model that estimates separate means for each `operator`. 
+
+The test is whether the variation in $y$ explained by the more complicated model (2) relative to the null model (1) is greater than what we'd expect by chance if the null model were true, taking into account the 3 extra degrees of freedom used in model 2.
+
+The result indicates the model with `operator` as a fixed factor is significantly better than the null model. We reject the null hypothesis (with a p-value of 0.023) and conclude that `operator` explains some variation in brightness.
+
 
 ## Linear model with random effect
 
-### Calculating the variance component with the ANOVA method
+### Calculating a variance component with the 'ANOVA method'
 
 We can use the output of the `aov` model we fit above to estimate the variance component for `operator`, if we were treating `operator` as a random effect. 
 
-Recall the following formula from the lecture.
+Recall the following formula from the lecture, which gives the 'ANOVA' estimate of the variance component for a simple random-effect model.
 
 $$
 \hat \sigma_{operator}^2 = \frac {MS_{operator} - MS_{residual}} n
 $$
 where $n$ is number of replicates per group. 
 
-Now calculate the estimate \hat \sigma_{operator}^2.
+Now calculate the estimate $\hat \sigma_{operator}^2$.
 
 ```{r, echo=TRUE}
 # Make the table again
 m1 %>% aov %>% summary
 
-# Calculate variance component
+# And use the Mean Sq values to calculate the variance component
 (0.4467 - 0.1062)/5
 ```
 
@@ -171,7 +183,7 @@ pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE)
 
 We've had to do a bit of heavy lifting here! We've provided the observed value of the F statistic based on the ratio of the two mean squares (0.44667/0.10625), and specified the degrees of freedom for the numerator (3) and denominator (16). 
 
-What have we done?
+So what have we done here?
 
 If the null hypothesis were true, and you were to repeat this study millions of times, the F statistic would theoretically follow an F distribution (with df 3 and 16). 
 
@@ -191,13 +203,15 @@ data.frame(F = seq(0,8,length=200)) %>%
 ```
 
 
-The p-value is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. This means that, if the null hypothesis were true, the probability of getting an F statistic as large or greater than 0.44667/0.10625 is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. The null hypotheis is therefore rejected at the 5% level, and we can conclude that there is some difference in brightness among operators.
+The p-value is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. This means that, if the null hypothesis were true, the probability of getting an F statistic as large or greater than 0.44667/0.10625 is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. The null hypothesis is therefore rejected at the 5% level, and we can conclude that there is some difference in brightness among operators.
 
 This works, but it's a bit of a nuisance. We usually expect our software to do this sort of stuff for us!
 
 The bottom line is that you can do ANOVA on classical balanced designs in R, but it is not very convenient and you have to do some manual calculations. The ANOVA methods in R focus on the fixed effects. This is perhaps because, in the classical experimental design framework, the random effect terms are considered nuisance variables -- they're of no interest in themselves, but they should be included in the model, regardless of whether they're significant, because they're part of the experimental design. 
 
 However, in some fields, such as genetics, random effects and testing for non-zero variance components is often the primary interest.
+
+Now let's look at some more modern approaches to estimating variance components. 
 
 
 ### Restricted Maximum Likelihood (REML) fit with `lme4`
@@ -235,9 +249,9 @@ This can be interpreted as: 39% of variability in brightness of paper is explain
 
 ### Testing a random effect: Likelihood ratio test
 
-We can test whether a model with an overall intercept and a random effect of `operator` explains significantly more variation in `bright` than a model with just an intercept and no random effect of `operator`. 
+We can test whether a model with a random effect of `operator` explains significantly more variation in `bright` than a model with just an intercept and no random effect of `operator`. 
 
-To do this test, we'll make the two models: a reference model that includes the random factor `operator`, and a nested model that does not. Then, we'll do a likelihood ratio test for these two models.
+We'll need to make the two models: a reference model that includes the random factor `operator`, and a nested model that does not. Then, we'll do a likelihood ratio test for these two models.
 
 But, because the nested model doesn’t have any random effects in it, we cannot fit it using the `lmer` function from `lme4` package. This doesn't work:
 
@@ -288,6 +302,7 @@ Our conclusion is that brightness varies among operators.
 #anova.lme(refm,nested)
 ```
 
+
 # Exercise
 
 A nutritionist conducted a study to assess the nutritional status of children enrolled in early childhood centres (ECC) in a city. There were a total of 6649 children enrolled in ECCs, distributed among 40 centers (ECCs). To collect the information, she randomly selected 5 centers and then randomly selected a number of children in each center. The number of childreen observed in each centre were not the same.
@@ -322,11 +337,11 @@ $\hat{\sigma}_{\alpha}^2$ we will replace $n$ in the denominator by $k_1.$
 
 $\hat{\sigma}_{\alpha}^2= \frac{MS_{Group} - MS_{Error}}{k_1}$, where
 
-$k_1=\frac{1}{I-1}[N-\frac{\sum_i n_i^2}{N}]$, where $N$ is the total number of observations and I is the number of groups. 
+$k_1=\frac{1}{I-1}[N-\frac{\sum_i n_i^2}{N}]$, where $N$ is the total number of observations, $I$ is the number of groups, and $n_i$ is the number of observations in group $i$.
 
 
 **f)	Fit a one-way random-effect linear model using `lmer()` from `lme4` package. What are the REML estimates of the variance components? Compare them with the ANOVA estimates.**
 
 **g)	Calculate the intraclass correlation coefficient.**
 
-**h)	Test the hypotheses H_0: $\sigma^2_{ecc} =0$ vs $H_0: \sigma^2_{ecc} > 0$ and write down your conclusion.**
+**h)	Test the hypotheses $H_0: \sigma^2_{ecc} =0$ vs $H_0: \sigma^2_{ecc} > 0$ and write down your conclusion.**
