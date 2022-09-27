@@ -305,35 +305,38 @@ Our conclusion is that brightness varies among operators.
 
 # Exercise
 
-A nutritionist conducted a study to assess the nutritional status of children enrolled in early childhood centres (ECC) in a city. There were a total of 6649 children enrolled in ECCs, distributed among 40 centers (ECCs). To collect the information, she randomly selected 5 centers and then randomly selected a number of children in each center. The number of childreen observed in each centre were not the same.
+A nutritionist conducted a study to assess the nutritional status of children enrolled in early childhood centres (ECC) in a city. There were a total of 6649 children enrolled in ECCs, distributed among 40 centres (ECCs). To collect the information, she randomly selected 5 centres and then randomly selected a number of children in each centre. The number of children observed in each centre were not the same.
 
-Among other characteristics, she collected information on children's body mass index (BMI). A question of interest was whether the center (ECC) factor had an influence on BMI.
+Among other characteristics, she collected information on children's body mass index (BMI). A question of interest was whether the centre (ECC) factor had an influence on BMI.
 
-The `BMI.txt` file available on STREAM site contain the dataset described above.
+The dataset is contained in a file named`BMI.txt`, which is available on Stream and via github.
 
 
-**a)	Why the factor `ecc` (center) should be treat as random in this example?**
+**a)	Why would we treat the factor `ecc` (centre) as random in this example?**
 
-Following the steps of the previous example (and the instructions below), analyse this dataset and write down your findings. 
+Following the steps of the previous example (and the instructions below), analyse this dataset and write down your findings.
 
-**b)	Import and inspect the data by checking the number of factor levels and number of replicates per level.**
+**b)	Import and inspect the data. Checking the number of factor levels and number of replicates per level.**
 
 ```{r}
-bmi <- read.table("BMI.txt", head=TRUE)
+bmi <- read.table(
+  "https://raw.githubusercontent.com/anhsmith/161331/main/data/BMI.txt",
+  header=TRUE
+  )
 ```
 
 
-**c)	Get some descriptive statistics, in particular mean and standard deviation per group.**
+**c)	Produce some descriptive statistics, specifically the mean and standard deviation, for each group.**
 
-**d)	Get a graphical summary. What can be said about intraclass correlation?**
+**d)	Summarise the data per group with a graph. What can be said about intraclass correlation?**
 
-**e)	Calculate the variance components estimates using the ANOVA method.**
+**e)	Estimate the variance components using the ANOVA method.**
 
 Remember the ANOVA estimate of variance components are:
 $\hat{\sigma}^2=MS_{Error}$ and $\hat{\sigma}_{\alpha}^2= \frac{MS_{Group} - MS_{Error}}{n}$, where the denominator $n$ is the number of observations per group.
 
-Remark. In this example, the design is unbalanced, i.e., the number of observations per gruop ($n_i$) is not constant, which impose additional difficulty. Therefore, to estimate 
-$\hat{\sigma}_{\alpha}^2$ we will replace $n$ in the denominator by $k_1.$
+**Remark on the non-balanced design.** In this example, the design is not balanced; that is, the number of observations varies among the groups ($n_i$). This causes some issues. Therefore, to estimate 
+$\hat{\sigma}_{\alpha}^2$, we will replace $n$ in the denominator by $k_1.$
 
 $\hat{\sigma}_{\alpha}^2= \frac{MS_{Group} - MS_{Error}}{k_1}$, where
 
@@ -344,4 +347,4 @@ $k_1=\frac{1}{I-1}[N-\frac{\sum_i n_i^2}{N}]$, where $N$ is the total number of 
 
 **g)	Calculate the intraclass correlation coefficient.**
 
-**h)	Test the hypotheses $H_0: \sigma^2_{ecc} =0$ vs $H_0: \sigma^2_{ecc} > 0$ and write down your conclusion.**
+**h)	Test the null hypothesis $H_0: \sigma^2_{ecc} =0$ (with the alternative hypothesis $H_0: \sigma^2_{ecc} > 0$). Write down your conclusion.**
