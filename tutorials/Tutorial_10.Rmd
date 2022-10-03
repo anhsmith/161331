@@ -1,167 +1,457 @@
 ---
-title: "Lab 10 - Random Effects: two or more factors in R"
-author: "Julio Pereira"
-output: html_document
+title: "Lab 10 - Mixed Models"
+author: "Adam Smith"
+output: 
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
 ---
 
-```{r setup, include=FALSE}
+```{r setup_rmd, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../data")
+knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
+theme_set(theme_bw())
 ```
 
-## Mixed Model - Example (From Aho, page 464)
 
-Let us reconsider the potato experiment with variety as a random factor and fertilizer as a fixed factor. It is reasonable to define variety as a random factor. There are over 4000 potato varieties, and inference to such a population might be of interest. 
-
-Here we have 2 factors:
-
-Fertilizer – fixed factor
-
-Varieties – random factor
-
-The interaction between fertilizer and Varieties is a random factor too (as at least one of them is random). So, the variance components are:
-
-$$Var(Y_{ijk})=\sigma_{Variety}^2+\sigma_{Variety:Fert}^2+\sigma_{\epsilon}^2$$
-
-A model including both fixed and random factors is called *mixed model*.
+Note: you can download the .Rmd file for this tutorial using the 'Code' button on the top right of this page.
 
 
-Now, let us calculate the ANOVA variance components. When we have one fixed and one random factor the anova estimators for a balanced two-way factorial design are given in the following table.
+There are a few libraries you might need to install (with e.g. `install.packages("asbio")`).
 
-For A fixed and B random
+```{r message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(asbio)
+library(glmmTMB)
+library(marginaleffects)
+```
+
+
+# Tutorial: Mixed models of potato yields
+
+This example is from page 464 of Aho's book [Foundational and Applied Statistics for Biologists using R](https://www.routledge.com/Foundational-and-Applied-Statistics-for-Biologists-Using-R/Aho/p/book/9781439873380), which is available as an e-book or physical copy from the Massey library. It is a useful resource and covers quite a lot of the content of this course. It has an associated R package, `asbio`, which you can install with `install.packages("asbio")`. 
+
+## Load data and analyse the experimental design 
+
+```{r, echo=TRUE}
+data(potato)
+# If you can't install the 'asbio' package, you can download "potato.txt" from STREAM
+# and load it with `potato <- read.table("potato.txt")`
+
+# reorder the factor Variety according to the mean of Yield
+potato <- potato %>% mutate(Variety = fct_reorder(Variety, Yield, mean))
+
+str(potato)
+```
+The `Yield` of potato is the response variable. There are 108 observations, one continuous response variable, and three factors: 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Variety`, the variety of the potato plant,
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Fert` is the fertiliser that was used, and
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Patch` identifies the piece of ground that the observation came from.
+
+
+We will model `Yield` based on `Variety` and `Fert`. 
+
+There are over 4000 potato varieties, and so we might wish to make inference about variation  the population of varieties. If we were interested specifically in the 12 varieties in the experiment, then we'd treat `Variety` as a fixed effect. Treatment factors, like fertiliser, are almost always treated as fixed. 
+
+The three fertilisers are `B` = 'basal manure', a control treatment; `Cl` = 'chloride addition'; and `S` = 'sulfur addition'.
+
+For now, we're going to ignore the factor `Patch`. Ordinarily, we wouldn't do this because there may be some variation associated with this factor that should be accounted for in the model. 
+
+The interaction between `Fert` and `Variety` is a random effect, which captures the differences in the effects of fertilisers among the varieties. Any interaction involving a random effect is itself a random effect. 
+
+First, let's see if these two factors are crossed or nested.
+
+```{r}
+table(potato$Variety, potato$Fert)
+```
+
+Although it's not a balanced design, `Fert` and `Variety` are crossed because there are data points in each combination of the levels of the two factors - every variety was grown with every fertiliser.
+
+Here's a basic plot of the data for each fertiliser, with a panel for each variety. 
+
+```{r fig.dim=c(8,5), out.width="90%"}
+potato %>%
+  ggplot() +
+  aes(x=Fert, y=Yield, colour=Fert) +
+  geom_point() +
+  facet_wrap(~Variety) +
+  xlab("Fertiliser")
+```
+
+From the plot, it doesn't look like the additions to the fertiliser are particularly effective. 
+
+Now we'll make a plot that'll allows us to see differences among varieties.
+
+```{r fig.dim=c(8,5), out.width="90%"}
+potato %>%
+  ggplot() +
+  aes(x=Variety, y=Yield, colour= Fert) +
+  geom_point() +
+  # facet_wrap(~Fert) +
+  xlab("Variety") +
+  coord_flip()
+  
+```
+
+It looks like Variety has a greater effect on Yield.
+
+## Model description
+
+A model including both fixed and random factors is called a *mixed model*.
+
+We will model `Yield` with three terms: 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\text{A}$: the random effects of `Variety`,  
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\text{B}$: the fixed effects of `Fert`, and
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\text{A:B}$: the random `Variety:Fert` interaction. 
+
+The full model may be written as follows.
+
+$$
+y_{ijk} = \mu + \alpha_i + \beta_j + \gamma_{ij} + \varepsilon_{ijk} \\
+\beta_j \sim N(0,\sigma^2_\text{B}) \\
+\gamma_{ij} \sim N(0,\sigma^2_\text{A:B}) \\
+\varepsilon_{ijk} \sim N(0,\sigma^2_{\text{E}}) 
+$$
+
+where 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$y_{ijk}$ is the yield of replicate $k$ from variety $j$ with fertiliser $i$, 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\mu$ is the global mean,
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\alpha_i$ is the effect of fertiliser $i$ (factor $\text{A}$),
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\beta_j$ is the effect of variety $j$ (factor $\text{B}$),
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\gamma_{ij}$ is the interaction effect of being in a particular combination of fertiliser $i$ and variety $j$ ($\text{A:B}$ interaction),   
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\varepsilon_{ijk}$ is the random individual error for observation $k$ in the group with fertiliser $i$ and variety $j$,  
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\sigma_{\text{B}}^2$ is the variance component for variety (i.e., $\text{Var}(\beta_j)$),
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\sigma_{\text{A:B}}^2$ is the variance component for the variety-by-fertiliser interaction (i.e., $\text{Var}(\gamma_{ij})$), 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\sigma_{\text{E}}^2$ is the variance of the residuals (i.e., $\text{Var}(\varepsilon_{ijk})$). 
+
+
+These effects are additive, so that the mean for fertiliser $i$ and variety $j$ is obtained by adding the terms $\mu + \alpha_i + \beta_j + \gamma_{ij}$.
+
+
+## Classical ANOVA
+
+Let us calculate the variance components using the ANOVA method. When we have one fixed and one random factor, the ANOVA estimators for a balanced two-way factorial design are given in the following table.
+
+For A fixed and B random in a balanced design:
 
 | Source | Expected mean squares | ANOVA estimators |
 |:-------|:---------------------------------------------------------------------------------------------------------------------------------------------:|---------:|
-| A      | $E(MS_A)=\sigma_{\epsilon}^2 + n\sigma_{\alpha\beta}^2 + bn\frac{\sum \alpha^2}{a-1}$                                                         |          |
-| B      | $E(MS_B) = \sigma_{\epsilon}^2 + an\sigma_{\beta}^2$                                  | $\hat\sigma_{\beta}^2= \frac{MS_B - MS_{\epsilon}}{an}$ |
-| A:B    | $E(MS_{A:B})= \sigma_{\epsilon}^2 + n\sigma_{\alpha\beta}^2$                          | $\hat\sigma_{(\alpha\beta)}^2=\frac{MS_{A:B} - MS_E}{n}$         |
-| Error  | $E(MS_E)=\sigma_{\epsilon}^2$                                                         | $\hat\sigma_{\epsilon}^2= MS_E$                       |
+| A      | $\text{E(MS}_\text{A})=\sigma_{\text{E}}^2 + n\sigma_\text{A:B}^2 + bn\frac{\sum \alpha^2}{a-1}$                                                         |          |
+| B      | $\text{E(MS}_\text{B}) = \sigma_{\text{E}}^2 + an\sigma_\text{B}^2$                                  | $\hat\sigma_\text{B}^2= \frac{\text{E(MS}_\text{B}) - \text{E(MS}_\text{E})}{an}$ |
+| A:B    | $\text{E(MS}_\text{A:B})= \sigma_{\text{E}}^2 + n\sigma_\text{A:B}^2$                          | $\hat\sigma_\text{A:B}^2=\frac{\text{E(MS}_\text{A:B}) - \text{E(MS}_\text{E})}{n}$         |
+| Error  | $\text{E(MS}_\text{E})=\sigma_{\text{E}}^2$                                                         | $\hat\sigma_{\text{E}}^2= \text{E(MS}_\text{E})$                       |
 
+where $a$ is the number of levels of factor $\text{A}$, and $b$ is the number of levels of factor $\text{B}$. 
 
-Fitting the classical two-way ANOVA model:
-
+Let's fit a classical two-way ANOVA model.
 
 ```{r, echo=TRUE}
-#library(asbio)
-#data(potato)
-# If you can't load asbio package you can donload "potato.txt" from STREAM and
-#load this dat with the folowing command
-potato <- read.table("potato.txt")
-m1 <- aov(Yield~Variety*Fert,data=potato)
+m1 <- aov(Yield ~ Variety * Fert, data=potato)
 anova(m1)
 ```
 
-Computing the variance components.
+These tests implicitly treat every term as fixed, so we can ignore the test results. 
+
+However, we can use this output to compute the variance components as follows.
 
 ```{r, echo=TRUE}
-MSF <- 0.7170
-MSV <- 3.9671
-MSFV <- 0.0910
-MSE <- 0.3420
+MS_fertiliser <- 0.7170
+MS_variety <- 3.9671
+MS_interaction <- 0.0910
+MS_error <- 0.3420
 n=3 #3 replicates for each combination of levels
 a=3 # number of levels in the fixed factor A (Fert)
 ```
 
 ```{r, echo=TRUE}
-(MSV-MSE)/(a*n) # Variance component for Variety
+(MS_variety - MS_error)/(a*n) # Variance component for Variety
 
-(MSFV-MSE)/n # Variance component for Fert:Variety
+(MS_interaction - MS_error)/n # Variance component for Fert:Variety
 
-MSE # Variance component for error
+MS_error # Variance component for error
 ```
 
-We see that one of our estimates is negative. 
+We see that one of the estimates is negative. Variances cannot be negative. A negative variance would imply that the effects are less than zero, that the group means are closer together than exactly the same.
 
-Let us fit the model using `lmer` function.
+Also, this design is *not* balanced, so we cannot really use these formulae in a formal analysis (we have just used n=3 above, but n varies from cell to cell). It is possible to adjust the ANOVA estimates according to an unbalanced design, but it is rather fiddly so we will not go into it here. Let's instead fit the model using more modern approaches.
+
+
+## Fitting the full model with `lme4`
+
+Fit the model using `lme4::lmer` function, with the code `(1 | Variety)` and `(1 | Variety : Fert)` to specify that these terms are random effects.
 
 ```{r, echo=TRUE}
-library(lme4)
-potato.ref <- lmer(Yield ~ Fert + (1|Variety) + (1|Variety : Fert), data = potato)
-potato.ref
+lmer1_potato <- lmer(Yield ~ Fert + (1 | Variety) + (1 | Variety : Fert), data = potato)
+summary(lmer1_potato)
 ```
 
-In this case, the REML variance estimates are not equal to the ANOVA method estimates, which gives negative results.
+The estimates of $\sigma_{Variety}^2$ and $\sigma_{Variety:Fert}^2$ are 0.41 and 0, respectively. The table also shows the standard deviations, $\sigma_{Variety}$ and $\sigma_{Variety:Fert}$, which are the square-roots of the variances. The estimated residual variance $\sigma_{\varepsilon}^2$ is 0.28.
 
+The warning `boundary (singular) fit: see help('isSingular')` shouldn't be ignored. It suggests that the optimiser had some trouble as it was hitting some boundary in the parameter space. This will be related to the fact that the variance component for `Variety:Fert` was estimated to be zero. 
 
-To determine the significance of the fixed fertilizer factor, we would perform a likelihood ratio test with model likelihoods based on ML estimates. This is most easily done with the function update.
+## Fitting the full model with `glmmTMB`
 
-```{r, echo=TRUE} 
-pot.ref.ML <- update(potato.ref, REML = FALSE) 
-pot.nested.1 <- update(potato.ref, ~. - Fert, REML = FALSE) 
-anova(pot.ref.ML, pot.nested.1) 
-```
-
-
-The test and information-theoretic criteria indicate that fertilizer has only marginal importance to yield. 
-
-Next, we test for the importance of variety, and the interaction of fertilizer and variety, both of which are random. To accomplish this, we test the hypotheses 
-
-$H_0: \sigma_{Variety:Fert}^2= 0$ and 
-$H_0: \sigma_{Variety}^2= 0$ 
-
-
-For the first hypothesis, $H_0: \sigma_{Variety:Fert}^2= 0$, we create a nested model without the variety:fertilizer interaction.
-
-```{r,echo=TRUE}
-pot.nested2 <- update(potato.ref, ~.-(1| Variety:Fert))
-```
-
-We then calculate the likelihood ratio test statistic by finding 2 times the difference in log-likelihoods of the reference model and `pot.nested2` model (both fitted via REML). 
-
-```{r,echo=TRUE,eval=FALSE}
-G2=2*(as.numeric(summary(potato.ref)$logLik) - as.numeric(summary(pot.nested2)$logLik))
-```
-
-
-We find that
-
-$$G^2=2\left[l(R)-l(N)\right]\approx0$$
-If $H_0$ is true, then $G^2$ will be a random outcome from a mixture of $\chi_1^2$ and $\chi_2^2$ distributions. Thus we calculate p-value as 
-
-`p-value = 0.5*pchisq(G2,df=1,lower.tail = FALSE)+0.5*pchisq(G2,df=2,lower.tail = FALSE)`
-
-In this case, note that $G^2\approx0$, making the P-value approximately 1, and prompting both failure to reject $H_0$ and deletion of the interaction term. 
-
-To test $H_0: \sigma_{Variety}^2= 0$, we create a nested model (within `pot.nested2`) without the variety factor. We use `gls` since this model will be without random effects.
+A more recent and very useful package for fitting mixed models is `glmmTMB` (because I know you wanted another mixed models package!). `glmmTMB` uses a slightly different optimiser, which is generally a bit more stable than `lmer`. It uses a Laplace approximation for random effects. 
 
 ```{r, echo=TRUE}
-detach(package:lme4, unload=TRUE)
-library(nlme) 
-pot.nested3 <- gls(Yield ~ Fert, data = potato)
-summary(pot.nested3)
+glmmTMB1_potato <- glmmTMB(Yield ~ Fert + (1 | Variety) + (1 | Variety : Fert), data = potato)
+summary(glmmTMB1_potato)
 ```
 
-We then find 2 times the difference in log-likelihood of `pot.nested2` and `pot.nested3` (both fitted via `REML`). 
+Now, the estimated variance component for `Variety:Fert` isn't exactly zero, but it is very small. Should we remove it or keep it in the model? 
 
-This is $G2 = 2[−102.6 + 133.22] = 61.24$. 
 
-The P-value allows clear-cut rejection of $H_0$ even without division by 2 to address the  $\chi_1^2$ and $\chi_0^2$ mixture distribution under H0.
+## Inference: testing hypotheses and model selection
 
-```{r, echo=TRUE}
-pchisq(61.24,1,lower.tail = F)
+It is important to distinguish between these two procedures (esting hypotheses and model selection) because the goals and methods are different.
+
+Testing hypotheses is about weighing the evidence for the **existence** of an effect. More correctly, it is about weighing evidence **against** a null hypothesis where the hypothesised effect is zero. With hypothesis testing, we put the burden of evidence on the data to contradict the null hypothesis. If the test is inconclusive, then we stick with the null (though we do not assert the null is true). Basically, the null stands until there is data show otherwise. The key tools for testing hypotheses are p-values (or, sometimes, showing a confidence interval that doesn't contain zero). 
+
+Model selection is more often about finding a good predictive model. There is no burden of evidence one way or another. We simply want to select a model that will most likely make the most accurate predictions for new data. We sometimes have terms in the model that are not significant, but look as though their presence in the model improves predictive accuracy. The key tools for model selection are information criteria, such as the AIC. Sometimes, we use more computationally intensive methods, such as leave-one-out or k-fold cross validation, which set aside parts of the data for testing the predictive accuracy of the model. 
+
+*So, what's our purpose here?*
+
+In our case, we wish to know if the different fertilisers affect yield, and whether the effects of fertiliser differ among varieties (i.e., the interaction between fertiliser and yield). As always, we begin by examining the interaction term.
+
+With simple ANOVA-type models, we often just leave all the terms in the model, even ones that aren't statistically significant. But when it is clear that a term is negligible, it is prudent to remove it. 
+
+### Testing the random interaction between fertiliser and variety
+
+Let's now test the hypothesis that the variance component for the interaction term is zero. 
+
+$\text{H}_0: \sigma_{Variety:Fert}^2 = 0$
+
+First, we'll use the `update` function to remove the term. In the code below, the dots `.` are just place holders for the formula of the original model `glmmTMB1_potato`. So `. ~ .` just means "the response and predictors as before", and then `- (1|Variety:Fert)` means "remove the random interaction between variety and fertiliser". 
+
+```{r}
+glmmTMB2_potato <- update(glmmTMB1_potato, . ~ . - (1|Variety:Fert))
+summary(glmmTMB2_potato)
+```
+
+Now we'll use the `anova` function to apply a Likelihood Ratio Test. For two models, one nested in the other, the LRT tests whether the more complex model has significantly better fit to the data in terms of the difference in log-likelihood, taking into account the number of extra degrees of freedom it uses.. 
+
+```{r}
+anova(glmmTMB2_potato, glmmTMB1_potato)
+```
+In this case, the more complicated model (with the interaction) has the same log-likelihood as the simpler model, despite having an extra term in it. An extra term gives a model more flexibility to fit to the data. The fact that it doesn't improve the fit at all here means it is a complete dud. The p-value is 1. Clearly, we fail to reject the null hypothesis. 
+
+Moreover, the lower AIC and BIC scores of the simpler model, `glmmTMB2`, mean that it is likely to make better predictions for new data.
+
+So, we'll continue with the simpler model, without the interaction term. In doing so, we are assuming that $\sigma_{Variety:Fert}^2 = 0$. 
+
+
+### Testing the fixed effect of fertiliser
+
+We'll use the Likelihood Ratio Test again to test for an effect of fertiliser. The null hypothesis is that there is no differences in average yields among any of the fertiliser treatments.
+
+$\text{H}_0:  \alpha_1 = \alpha_2 = \alpha_3 = 0$
+
+We'll now fit model with the `Fert` term removed. 
+
+```{r}
+glmmTMB3_potato <- update(glmmTMB2_potato, . ~ . - Fert)
+summary(glmmTMB3_potato)
+```
+
+And do the test.
+
+```{r}
+anova(glmmTMB3_potato, glmmTMB2_potato)
+```
+
+The hypothesis test is not significant at the 5% level (P > 0.05). The model with the fertiliser term included doesn't fit the data much better than we would expect it to, just by chance, under the null hypothesis that fertiliser has no effect on yield. 
+
+Moreover, the information criteria (AIC and BIC) indicate that there is little evidence that having fertiliser in the model helps to predict yield, as the model without fertiliser has lower AIC and BIC scores.
+
+Now, should we retain `Fert` in our model when we test for `Variety`? The p-value for `Fert` was 0.08. This is not enough to establish statistical significance at the 5% level, but it is not far off. We cannot assume that that the fertiliser treatment has *no* effect. Absence of evidence is not evidence of absence, after all. 
+
+In this situation, a commonly used rule of thumb for deciding whether to remove a non-significant term in a model is a p-value < 0.25. So, for testing `Variety`, we'll keep `Fert` in the model.
+
+
+### Testing the random effect of variety
+
+Next, we test for the random effect of variety. The null hypotheses is 
+$H_0: \sigma_{Variety}^2= 0$.
+
+The estimated variance component for `Variety` is 0.37, according to the model `glmmTMB2_potato` above.
+
+Let's make the final model and do the test.
+
+
+```{r}
+glmmTMB4_potato <- update(glmmTMB2_potato, . ~ . - (1|Variety))
+summary(glmmTMB4_potato)
+```
+
+```{r}
+anova(glmmTMB4_potato, glmmTMB2_potato)
+```
+Now, that's convincing! The average yields are definitely different among varieties.
+
+*Wait, what?*
+
+It is worthwhile stopping for a moment and asking: why did we test this hypothesis? There is actually no particular reason to do so. What have we done? What does the null hypothesis represent?
+
+The null hypothesis was that all varieties of potato have exactly the same yield, on average. In other words, no variety has an average yield any different to any other variety. Does that sound realistic? I think not. It's a bit of a 'straw-man' hypothesis, really. 
+
+This is why, when I laid out our purpose above, I said nothing about testing for an effect of yield, only for the effects of fertiliser, and differences in the effects of fertiliser among varieties. Variety was included in the study to test the generality of the fertiliser effects, so it should be in the model, regardless of whether it is significant.  
+
+
+## Model interpretation 
+
+### Summary output 
+
+Let's look at the summary of our working model again. 
+
+```{r}
+summary(glmmTMB2_potato)
+```
+
+The lower `Conditional model` table shows the fixed effects of `Fert`. There are three lines, one for each coefficient: `(Intercept)`, `FertCl`, and `FertS`. 
+
+R has done its usual method of setting one level as the 'reference' level. This is a big difference between how random and fixed effects are parameterised. There is no reference level for a random effect, like there is for a fixed effect. Random effects sum to zero.
+
+In the case of `Fert`, the reference level is `B` for 'basal manure'. So, the row `(Intercept)` gives the estimate of the mean yield of level `B`. In this case, the average yield for data points with basal manure was 3.08.
+
+The next two rows are the estimated effects of the other two levels, relative to the reference level. 
+
+The coefficient `FertCl` is the difference between the mean of level `Cl` (chloride addition) and the mean of reference level `B`. The estimated mean of level `Cl` is therefore 3.08 - 0.27 = 2.81. This effect has a p-value < 0.05, so there is evidence that adding chloride reduces yield, on average.
+
+The coefficient `FertS` is the difference between the mean of level `S` (sulphur addition) and the mean of reference level `B`. The estimated mean of level `S` is therefore 3.083958 + 0.006319 = 3.09. The large p-value indicates little evidence that adding sulphur affects yield.
+
+These effects are estimated irrespective of the two random terms. They are not estimates for any particular variety. They are the estimated 'global' or 'marginal' means for each fertiliser, removing any effect of variety is added. 
+
+However, that isn't to say that the tests of the effects of fertiliser do take the random terms into account. If we fit a model without the random effect of variety, we wouldn't get the same result. 
+
+Let's see what happens to the tests when we omit variety from the model altogether. 
+
+```{r}
+glmmTMB(Yield ~ Fert, data = potato) %>% summary
+```
+
+The estimates of the effects of fertiliser are the same if we remove the random effect of variety, but the p-values go up!
+
+A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.277; without variety, it is 0.651. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
+
+
+### Estimating and plotting means
+
+We can use the handy package `marginaleffects` to estimate different means of interest. See https://vincentarelbundock.github.io/marginaleffects/index.html for more details. 
+
+First, we'll calculate the estimates of marginal means of each fertiliser treatment, excluding, or averaging over, the random effects. 
+
+
+```{r}
+means_fert <- marginalmeans(glmmTMB2_potato, variables = "Fert")
+means_fert
+```
+
+This gives estimates for the mean of each level the 'marginalmean' column, with the 95% confidence intervals for the means given by the 'conf.low' and 'conf.high' columns. We can ignore the  'p.value' column, because it refers to tests of the hypothesis that the marginal means are exactly zero, which is a little silly. 
+
+Now let's plot these means. 
+
+```{r}
+means_fert %>%
+  ggplot() +
+  aes(x=value, y=marginalmean) +
+  geom_point(size=5) +
+  geom_errorbar(aes(x=value, ymin=conf.low, ymax=conf.high), width=0) +
+  geom_jitter(aes(x=Fert, y=Yield, col=Fert),
+             data=potato, 
+             width=.2, alpha=.4 ) +
+  xlab("Fertiliser") + ylab("Yield") +
+  ggtitle("Estimated marginal means by fertiliser type")
+             
+```
+
+Now let's do the same for variety - calculate the mean yield for each variety, marginalised over the fertiliser types. 
+
+```{r}
+means_var <- marginalmeans(glmmTMB2_potato, variables = "Variety")
 ```
 
 
-```{r, echo=TRUE}
-#This is how we would calculate a better approximation to the p-value, addressing the mixture #distriution 
-0.5*pchisq(61.24,1,lower.tail = F) + 0.5*pchisq(61.24,0,lower.tail = F)
+```{r}
+means_var %>%
+  ggplot() +
+  aes(x=value, y=marginalmean) +
+  geom_point(size=2) +
+  geom_errorbar(aes(x=value, ymin=conf.low, ymax=conf.high),
+                width=0) +
+  geom_jitter(aes(x=Variety, y=Yield, col=Variety),
+             data=potato, 
+             width=.2, alpha=.4 ) +
+  xlab("Variety") + ylab("Yield") +
+  ggtitle("Estimated marginal means by variety") +
+  coord_flip() + theme(legend.position = "none")
+             
 ```
 
-## Exercise
+We can estimate means of combinations of fertiliser and variety with the function `predictions`.
 
-The `Tree.txt` dataset available on STREAM refers to a two-way factorial design experiment where a researcher investigated the influence of device and operator on the trees height measurements.  Five different types of devices were combined with four operators resulting in 20 combinations (treatments). Each treatment was repeated 10 times, i.e.  each combination of device and operator was used to measure 10 trees. 
+```{r}
+means_fert_var <- predictions(glmmTMB2_potato, by = c("Fert", "Variety"))
+means_fert_var %>% summary
+```
+
+```{r fig.dim=c(8,5), out.width="90%"}
+means_fert_var %>%
+  ggplot() +
+  aes(x=Fert, y=predicted, col = Variety) +
+  # plot data points as little x
+  geom_point(aes(y=Yield), pch=4, alpha=.6, 
+             data=potato, position = position_dodge(.8)) +
+  # plot conditional means and error bars 
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(aes(x=Fert, ymin=conf.low, ymax=conf.high), width=0, 
+               position = position_dodge(.8)) +
+  # plot marginal means and error bars 
+  geom_point(aes(x=value, y = marginalmean), inherit.aes = F, 
+             data=means_fert, size=5) +
+  geom_errorbar(aes(x=value, ymin = conf.low, ymax=conf.high), 
+                inherit.aes = F, data=means_fert, width=0, lwd=1.1) +
+  xlab("Fertiliser") + ylab("Mean yield") +
+  ggtitle("Marginal means by fertiliser and conditional means by fertiliser and variety")
+```
 
 
-a)	Read the dataset into R and name the data.frame as “Tree”. You will need to change the data format from “wide” to “long”. Use the following commands to do so.
+# Exercises
+
+## Trees
+
+The `Tree.txt` dataset available on Stream refers to a two-way factorial design experiment where a researcher investigated the influence of device and operator on the trees height measurements.  Five different types of devices were combined with four operators resulting in 20 combinations (treatments). Each treatment was repeated 10 times, as each combination of device and operator was used to measure 10 trees. 
+
+
+a)	Read the dataset into R and name the data.frame as “Trees”. You will need to change the data format from “wide” to “long”. Use the following commands to do so.
 
 ```{r, eval=TRUE}
-# Set your own working directory
-# setwd("C:/Users/ricar/Documents/Biostatistics/Module 3 - Mixed models/Tutorials")
 Trees <- read.table("Trees.txt", header = TRUE)
 ```
 
 ```{r}
-library("tidyr") 
-dtl <- Trees %>% pivot_longer(c("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" ), names_to = "Tree", values_to="Hight")
+dtl <- Trees %>% 
+  pivot_longer(c("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" ), 
+               names_to = "Tree", 
+               values_to="Height")
 
 dtl
 ```
@@ -171,13 +461,15 @@ For the following analysis ignore the column `Tree`.
 
 b) One factor will be treated as random and the other as fixed.	Which one should be treated as random and which should be fixed? Give reasons.
 
-c)	Fit a two-way factorial design linear model (use `lmer` function), including the `Device`, `Operator` and `Device:Operator` terms, and find the REML variance components estimates. Do the radom effects contribute to explain variability on tree hights?
+c)	Fit a two-way factorial design linear model (using the `lmer` or `glmmTMB` function), including the `Device`, `Operator` and `Device:Operator` terms, and estimate the variance components. Is there any evidence that the random effects explain some variability in tree heights?
 
-d) In the above analysis we haven't included the `Tree` effect. Assuming there is no interaction between `Tree` and the other factors, adjust the above model again including `Tree` as a random effect. Find the REML variance components estimates. How do they compare to those you found in c)?
+d) In the above analysis, we haven't included the `Tree` effect. Assuming there is no interaction between `Tree` and the other factors, adjust the above model to include `Tree` as a random effect. Estimate the variance components. How do they compare to those you found in c)?
 
 
-e)	Using the model in d) as a reference model test the significance of the random interaction term. 
+e)	Using the model in d) as a reference model, test the significance of the random interaction term.
 
 f)	Assuming `Tree` as the only random effect to be included in your model, test the significance of the fixed factor.
+
+h) If you have time, use the `marginaleffects` package to estimate and plot various means of interest, with 95% confidence intervals. 
 
 
