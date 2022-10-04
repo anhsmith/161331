@@ -4,8 +4,11 @@ title: |
   | Longitudinal Data
 output:
   html_document:
-    df_print: paged
+    number_sections: yes
     toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
   pdf_document:
     number_sections: yes
     toc: yes
@@ -14,6 +17,8 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+Note: you can download the .Rmd file using the 'code' button on the top right.
 
 # Load packages
 

@@ -2,13 +2,20 @@
 title: "Lab 11 - Repeated Measures ANOVA in R"
 author: "Julio Pereira"
 output: html_document
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Pain Relief Data Analysis in R
+Note: you can download the .Rmd file using the 'code' button on the top right.
+
+# Pain Relief Data Analysis in R
 
 In this tutorial we are going to analyse the data resulting from the experiment described on **E.g. 2** of our lecture. In that study, to find out the effect of a drug as an analgesic in four participants, three pain relief measures were taken, one at the beginning of the experiment (at 3 pm), another at 5 pm and the last at 7 pm.
 

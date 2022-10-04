@@ -1,14 +1,20 @@
 ---
 title: "Lab 10 - Random Effects: two or more factors in R"
-author: "Julio Pereira"
 output: html_document
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Mixed Model - Example (From Aho, page 464)
+Note: you can download the .Rmd file using the 'code' button on the top right.
+
+# Mixed Model - Example (From Aho, page 464)
 
 Let us reconsider the potato experiment with variety as a random factor and fertilizer as a fixed factor. It is reasonable to define variety as a random factor. There are over 4000 potato varieties, and inference to such a population might be of interest. 
 

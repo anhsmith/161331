@@ -7,6 +7,7 @@ output:
     toc: yes
     toc_float: yes
     df_print: paged
+    code_download: true
 ---
 
 ```{r setup_rmd, include=FALSE}
@@ -22,6 +23,8 @@ library(tidyverse)
 library(faraway)
 theme_set(theme_bw())
 ```
+
+Note: you can download the .Rmd file using the 'code' button on the top right.
 
 # Tutorial: Analysis of pulp data 
 

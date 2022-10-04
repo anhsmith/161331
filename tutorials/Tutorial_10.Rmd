@@ -17,9 +17,7 @@ knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
 theme_set(theme_bw())
 ```
 
-
 Note: you can download the .Rmd file for this tutorial using the 'Code' button on the top right of this page.
-
 
 There are a few libraries you might need to install (with e.g. `install.packages("asbio")`).
 
@@ -222,21 +220,23 @@ Now, the estimated variance component for `Variety:Fert` isn't exactly zero, but
 
 ## Inference: testing hypotheses and model selection
 
-It is important to distinguish between these two procedures (esting hypotheses and model selection) because the goals and methods are different.
+It is important to distinguish between these two procedures (testing hypotheses and model selection) because the goals and methods are different.
 
-Testing hypotheses is about weighing the evidence for the **existence** of an effect. More correctly, it is about weighing evidence **against** a null hypothesis where the hypothesised effect is zero. With hypothesis testing, we put the burden of evidence on the data to contradict the null hypothesis. If the test is inconclusive, then we stick with the null (though we do not assert the null is true). Basically, the null stands until there is data show otherwise. The key tools for testing hypotheses are p-values (or, sometimes, showing a confidence interval that doesn't contain zero). 
+Testing hypotheses is about weighing the evidence for the **existence** of an effect. More correctly, it is about weighing evidence **against** a null hypothesis that (usually) some parameter is zero. With hypothesis testing, we put the burden of evidence on the data to contradict the null hypothesis. If the test is inconclusive, then we're left with the null (though we do not assert the null is true). Basically, the null stands until there are data to show otherwise. The key tools for testing hypotheses are test statistics and p-values (or, sometimes, showing a confidence interval that doesn't contain zero). 
 
 Model selection is more often about finding a good predictive model. There is no burden of evidence one way or another. We simply want to select a model that will most likely make the most accurate predictions for new data. We sometimes have terms in the model that are not significant, but look as though their presence in the model improves predictive accuracy. The key tools for model selection are information criteria, such as the AIC. Sometimes, we use more computationally intensive methods, such as leave-one-out or k-fold cross validation, which set aside parts of the data for testing the predictive accuracy of the model. 
 
-*So, what's our purpose here?*
+**So, what's our purpose here?**
 
-In our case, we wish to know if the different fertilisers affect yield, and whether the effects of fertiliser differ among varieties (i.e., the interaction between fertiliser and yield). As always, we begin by examining the interaction term.
+In our case, we wish to know if the different fertilisers have different average yields, and whether the effects of fertiliser differ among varieties (i.e., the interaction between fertiliser and yield). 
 
-With simple ANOVA-type models, we often just leave all the terms in the model, even ones that aren't statistically significant. But when it is clear that a term is negligible, it is prudent to remove it. 
+This sounds more like a hypothesis-testing situation. But do we need to do model selection in this case? With simple ANOVA-type models, we sometimes just leave all the terms in the model, even ones that aren't statistically significant. Excluding a term is asserting that it is exactly zero, which is an assumption we don't have to make. That said, when it is clear that a term is negligible, it is prudent to remove it to avoid the model from overfitting, thus improving the precision of the remaining terms.
+
+As always, will we begin by examining the interaction term.
 
 ### Testing the random interaction between fertiliser and variety
 
-Let's now test the hypothesis that the variance component for the interaction term is zero. 
+Let's now test the hypothesis that the variance component for the interaction term is zero. That is, the fertiliser effects do not vary among varieties; their effects are the same for all varieties. In testing this hypothesis, we're looking for evidence in the data that the fertilisers affect some varieties differently to other varieties, thus contradicting the null.
 
 $\text{H}_0: \sigma_{Variety:Fert}^2 = 0$
 
@@ -284,7 +284,7 @@ Moreover, the information criteria (AIC and BIC) indicate that there is little e
 
 Now, should we retain `Fert` in our model when we test for `Variety`? The p-value for `Fert` was 0.08. This is not enough to establish statistical significance at the 5% level, but it is not far off. We cannot assume that that the fertiliser treatment has *no* effect. Absence of evidence is not evidence of absence, after all. 
 
-In this situation, a commonly used rule of thumb for deciding whether to remove a non-significant term in a model is a p-value < 0.25. So, for testing `Variety`, we'll keep `Fert` in the model.
+In this situation, a commonly used rule of thumb for deciding whether to remove a non-significant term in a model is a p-value > 0.25. So, for testing `Variety`, we'll keep `Fert` in the model.
 
 
 ### Testing the random effect of variety
@@ -305,13 +305,13 @@ summary(glmmTMB4_potato)
 ```{r}
 anova(glmmTMB4_potato, glmmTMB2_potato)
 ```
-Now, that's convincing! The average yields are definitely different among varieties.
+Now, that's convincing! With such a tiny p-value, we can confidently conclude that the average yields are indeed different among varieties.
 
 *Wait, what?*
 
-It is worthwhile stopping for a moment and asking: why did we test this hypothesis? There is actually no particular reason to do so. What have we done? What does the null hypothesis represent?
+It is worthwhile stopping for a moment and asking: why did we test this hypothesis? 
 
-The null hypothesis was that all varieties of potato have exactly the same yield, on average. In other words, no variety has an average yield any different to any other variety. Does that sound realistic? I think not. It's a bit of a 'straw-man' hypothesis, really. 
+The null hypothesis here is that all varieties of potato have exactly the same yield, on average. In other words, no variety has an average yield any different to any other variety. Does that sound realistic? I think not. It's a bit of a 'straw-man' hypothesis, really. There is actually no particular reason to have done this test. 
 
 This is why, when I laid out our purpose above, I said nothing about testing for an effect of yield, only for the effects of fertiliser, and differences in the effects of fertiliser among varieties. Variety was included in the study to test the generality of the fertiliser effects, so it should be in the model, regardless of whether it is significant.  
 
@@ -383,12 +383,26 @@ means_fert %>%
              
 ```
 
-Now let's do the same for variety - calculate the mean yield for each variety, marginalised over the fertiliser types. 
+Note that these confidence intervals are not the same as what we would get if we just calculated them separately from the yields in each fertiliser group, ignoring varieties. Our confidence intervals have been adjusted for differences among varieties. This mopped up some of the noise in the data, thereby reducing the uncertainty in our estimates of the fertiliser means.
+
+Here are the more naive confidence intervals for comparison. 
+
+```{r}
+potato %>%
+  group_by(Fert) %>%
+  summarise(mean = mean(Yield),
+            conf.low = mean(Yield) - 1.96*sd(Yield)/sqrt(n()),
+            conf.high = mean(Yield) + 1.96*sd(Yield)/sqrt(n()))
+```
+The confidence intervals are quite a lot wider. Believe it or not, it is quite common to see these sorts of 'naive' intervals on plots. If you've gone to the trouble of fitting a fancy model, why not use it to estimate the means?!
+
+Now let's extract from our model the estimates of mean yield for each variety, marginalised over the fertiliser types. 
 
 ```{r}
 means_var <- marginalmeans(glmmTMB2_potato, variables = "Variety")
 ```
 
+And made the plot.
 
 ```{r}
 means_var %>%
@@ -413,26 +427,30 @@ means_fert_var <- predictions(glmmTMB2_potato, by = c("Fert", "Variety"))
 means_fert_var %>% summary
 ```
 
+And make the plot. 
+
 ```{r fig.dim=c(8,5), out.width="90%"}
 means_fert_var %>%
   ggplot() +
   aes(x=Fert, y=predicted, col = Variety) +
-  # plot data points as little x
-  geom_point(aes(y=Yield), pch=4, alpha=.6, 
+  # plot data points as little crosses
+  geom_point(aes(y=Yield), pch=4, alpha=.7, 
              data=potato, position = position_dodge(.8)) +
-  # plot conditional means and error bars 
+  # plot conditional means and error bars for fert and variety combos 
   geom_point(position = position_dodge(.8)) +
   geom_errorbar(aes(x=Fert, ymin=conf.low, ymax=conf.high), width=0, 
                position = position_dodge(.8)) +
-  # plot marginal means and error bars 
+  # plot marginal means and error bars for fert
   geom_point(aes(x=value, y = marginalmean), inherit.aes = F, 
              data=means_fert, size=5) +
   geom_errorbar(aes(x=value, ymin = conf.low, ymax=conf.high), 
                 inherit.aes = F, data=means_fert, width=0, lwd=1.1) +
-  xlab("Fertiliser") + ylab("Mean yield") +
+  xlab("Fertiliser") + ylab("Yield") + 
   ggtitle("Marginal means by fertiliser and conditional means by fertiliser and variety")
 ```
 
+
+I think my daughter would like this plot. If there were any unicorn statisticians out there, they'd make plots like this.
 
 # Exercises
 
