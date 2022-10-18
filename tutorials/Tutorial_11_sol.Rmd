@@ -1,5 +1,6 @@
 ---
 title: "Tutorial 11 - Analysis of repeated measures"
+subtitle: "with solutions"
 output: 
   html_document:
     number_sections: yes
@@ -85,7 +86,7 @@ Some observations:
 - There are some big differences in pain scores among subjects
 - Pain starts low and increases over time
 
-Here are the means and standard deviations of pain scores for each `Time` group.
+Here are the means and standard deviations of pain scores for each Time group.
 
 ```{r}
 dt |> 
@@ -398,6 +399,8 @@ Here's the correlation for the random effects of intercepts and slopes:
 ```{r}
 ranef(mixreg1)[[1]]$Subject |> cor()
 ```
+
+
 Here are the lines that are being fit to each subject.
 
 ```{r, warning=F}
@@ -639,4 +642,38 @@ Remember, you're now fitting 5 x 3 = 15 subject effects, so be sure to remove th
 3. Plot some of the predictions from the best `lmmx` model.
 
 4. Finally, compare the best `lmmx` model to the `mixreg2` model. 
+
+
+## Solutions
+
+Fit the compound-symmetry-covariance model.
+
+```{r}
+lmm2 <- glmmTMB(Pain ~ Time + cs(0 + Time | Subject), 
+                  dispformula=~0, data=dt)
+
+summary(lmm2)
+```
+
+
+Fit the unstructured-covariance model.
+
+```{r}
+lmm3 <- glmmTMB(Pain ~ Time + us(0 + Time | Subject), 
+                  dispformula=~0, data=dt)
+
+summary(lmm3)
+```
+
+Compare the mixed models.
+
+```{r}
+anova(lmm1,lmm2,lmm3)
+```
+
+Compare the unstructured-covariance model to the mixed-regression model. 
+
+```{r}
+anova(mixreg2,lmm3)
+```
 

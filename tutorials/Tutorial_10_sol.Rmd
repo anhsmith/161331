@@ -10,19 +10,19 @@ output:
     code_download: true
 ---
 
+```{r setup_rmd, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "../data")
+knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
+theme_set(theme_bw())
+```
+
 ```{css, echo=TRUE, class.source="bg-danger"}
 #answer {
   background-color: #C5E4F3;
   border-left: 3px solid #297EB1;
   padding: 10px;
 }
-```
-
-```{r setup_rmd, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "../data")
-knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
-theme_set(theme_bw())
 ```
 
 Note: you can download the .Rmd file for this tutorial using the 'Code' button on the top right of this page.
@@ -462,7 +462,7 @@ I think my daughter would like this plot. If there were any unicorn statistician
 
 # Exercises
 
-## Trees
+## Tree
 
 The `Tree.txt` dataset available on Stream refers to a two-way factorial design experiment where a researcher investigated the influence of device and operator on the trees height measurements.  Five different types of devices were combined with four operators resulting in 20 combinations (treatments). Each treatment was repeated 10 times, as each combination of device and operator was used to measure 10 trees. 
 
@@ -470,32 +470,144 @@ The `Tree.txt` dataset available on Stream refers to a two-way factorial design 
 a)	Read the dataset into R and name the data.frame as “Trees”. You will need to change the data format from “wide” to “long”. Use the following commands to do so.
 
 ```{r, eval=TRUE}
-Trees <- read.table("Trees.txt", header = TRUE)
+Trees <- read_table("Trees.txt")
 ```
 
 ```{r}
-dtl <- Trees %>% 
-  pivot_longer(c("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" ), 
-               names_to = "Tree", 
-               values_to="Height")
-
+dtl <- Trees %>% pivot_longer(I:X, names_to = "Tree", values_to="Height")
 dtl
 ```
 
 
 For the following analysis ignore the column `Tree`.
 
+
 b) One factor will be treated as random and the other as fixed.	Which one should be treated as random and which should be fixed? Give reasons.
+
+::: {#answer}
+
+Operator is treated as random because we are not very interested in drawing conclusions about these specific operators. Of interest is the degree of variability associated with this factor. On the other hand device is fixed because we want to compare these specific five devices.
+
+:::
 
 c)	Fit a two-way factorial design linear model (using the `lmer` or `glmmTMB` function), including the `Device`, `Operator` and `Device:Operator` terms, and estimate the variance components. Is there any evidence that the random effects explain some variability in tree heights?
 
+::: {#answer}
+
+
+```{r, echo=TRUE}
+library(glmmTMB)
+tree_c <- glmmTMB(Height ~ Device + (1|Operator) + (1|Operator:Device), data = dtl)
+summary(tree_c)
+```
+
+The estimates of the variance components for `Operator:Device` and `Operator` are near zero. It seems that these random effects don't explain much of the variability in tree heights. 
+
+:::
+
+
 d) In the above analysis, we haven't included the `Tree` effect. Assuming there is no interaction between `Tree` and the other factors, adjust the above model to include `Tree` as a random effect. Estimate the variance components. How do they compare to those you found in c)?
 
+::: {#answer}
+
+```{r}
+tree_d <- update(tree_c, .~. + (1|Tree))
+summary(tree_d) 
+
+```
+
+The `Operator` variance component got smaller, and the `Operator:Device` variance component got larger. The reflects that fact that the inclusion of an additional term can have unpredictable effects on the other terms in the model, depending on whether the particular variation in $y$  explained by the new factor overlaps or is adjacent to the variation explained by the existing terms. Here, it seems that `Tree` is complementary to the `Operator:Device` term, but takes away from the `Operator` term.
+
+Importantly, the *unexplained* variance went from 8.26 to 0.413, a huge drop! 
+
+For the fixed effects, including `Tree` in the model didn't change the estimates of the coefficients, but it does lower the p-values, due to the `Tree` term explaining away a lot of the previously unexplained variation. 
+
+:::
 
 e)	Using the model in d) as a reference model, test the significance of the random interaction term.
 
+::: {#answer}
+
+To test the hypothesis, $H_0: \sigma_{Operator:Device}^2= 0$, we create a nested model without the `Operator:Device` interaction.
+
+```{r,echo=TRUE}
+tree_e1 <- update(tree_d, ~.-(1| Operator:Device))
+```
+
+We then do a likelihood ratio test. 
+
+```{r}
+anova(tree_e1,tree_d)
+```
+
+The p-value of around 0.2 suggests little evidence for the effects of device being different among operators. It may not be high enough to justify removing the term though. 
+
+We could also test the random effect of `Device`. In this case model `tree_e1` will be the reference model.  
+
+```{r,echo=TRUE}
+tree_e2 <- update(tree_e1, ~.-(1| Operator))
+anova(tree_e2,tree_e1,tree_d)
+```
+
+As expected, we can conclude that there is little evidence of variability due to operators.
+
+Since the interaction term was stronger than the main effect of operator, let's test those two directly.
+
+```{r,echo=TRUE}
+anova(tree_e2,tree_d)
+```
+On balance, this would suggest that `Operator` and it's interaction with `Device` are both unnecessary. If this were a real analysis though, I would consult with someone knowledgeable about the system to ask if they'd be comfortable assuming those terms were negligible before deciding to remove them. Absence of evidence isn't evidence of absence!
+
+:::
+
 f)	Assuming `Tree` as the only random effect to be included in your model, test the significance of the fixed factor.
 
+::: {#answer}
+
+```{r}
+tree_f <- update(tree_e2, ~.-Device)
+anova(tree_f,tree_e2)
+```
+There is plenty of evidence of differences among devices. 
+
+:::
+
+
 h) If you have time, use the `marginaleffects` package to estimate and plot various means of interest, with 95% confidence intervals. 
+
+::: {#answer}
+
+```{r}
+
+library(marginaleffects)
+m <- dtl |> 
+  mutate(Tree = fct_reorder(Tree, Height, mean)) |> # reorder trees
+  glmmTMB(formula = Height ~ Device + (1 | Tree)) 
+
+preds_by_tree_and_device <- predictions(m)
+preds_by_device <- predictions(m, by="Device")
+
+preds_by_tree_and_device |> 
+  ggplot() +
+  aes(x=Device,col=Tree) +
+  geom_point(aes(y=predicted),position=position_dodge(.5), alpha=.7) +
+  geom_errorbar(aes(ymin=conf.low,ymax=conf.high),
+                position=position_dodge(.5), width=0, alpha=.7) +
+  geom_point(aes(y=Height),pch=4,position=position_dodge(.5), alpha=.5) +
+  geom_point(aes(y=predicted,col=NULL), 
+             preds_by_device, size=2) +
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high, col=NULL),
+                preds_by_device,
+                position=position_dodge(.5), width=0) +
+  ylab("Height")
+
+```
+
+:::
+
+
+
+
+
 
 

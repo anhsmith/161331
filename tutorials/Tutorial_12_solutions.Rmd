@@ -1,7 +1,6 @@
 ---
-title: |
-  | 161331 Week 12 Computer Tutorial
-  | Longitudinal Data
+title: "161331 Week 12 Computer Tutorial"
+subtitle: "Analysis of longitudinal data"
 output:
   html_document:
     number_sections: yes
@@ -22,26 +21,31 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r loadlib, message=FALSE}
 library(tidyverse)
-library(nlme)
-library(lme4)
+library(glmmTMB)
+library(marginaleffects)
 theme_set(theme_bw())
 ```
 
 
 # Load the `temp` data
 
-The dataset in 'temp-reduced.txt' gives the soil temperature at 6 different depths (5, 10, 15, 20, 25 and 30 cm below the surface) at 56 different locations. There are three variables: `temperature` (continuous), `depth` (continuous, but regular), and `location` (factor).
+We will analyse data on the temperatures of soil at 6 different depths (5, 10, 15, 20, 25 and 30 cm below the surface) at 56 different locations. There are three variables: `temperature` (continuous), `depth` (continuous, but regular), and `location` (factor).
 
 Read in the dataset “temp2.csv” and assign to object `temp`. 
 
 ```{r}
-temp <- read_csv('temp2.csv') 
+temp <- read_csv('https://raw.githubusercontent.com/anhsmith/161331/main/data/temp2.csv') |> 
+  # make location a factor
+  mutate(location = as_factor(location)) |> 
+  # order levels by maximum temp
+  mutate(location = fct_reorder(location,temperature,max))
 temp
+str(temp)
 ```
 
 # Initial plots
 
-We can easily plot all the data as depth by temperature.
+Let's plot all the data as depth by temperature.
 
 ```{r fig.dim=c(5,3)}
 # set up the basic ggplot object, 'gt'
@@ -61,22 +65,22 @@ gt +
 
 ```
 
-Do you think that the linear fit does a good job, or do you think the model is going to need some curvature?
+Do you think that the linear fit does a good job, or do you think a model with some curvature will be better?
 
-Now, this gives us a useful impression of the overall pattern in the data, but it ignores an important structure in the data: the data are grouped by location, and each location has it's own temperature profile across the range of depths. 
+The above plots give us a useful impression of the overall pattern in the data, but they ignore an important structure in the data: the locations. Each location has it's own temperature profile across the range of depths.
 
 Let's plot the locations as individual lines:
 
 ```{r fig.dim=c(8,5)}
-gt + geom_line(aes(col=factor(location)), alpha = .4)
+gt + geom_line(aes(col=location), alpha = .4)
 ```
 
 Alternatively, we can plot the locations as individual panels.
 
 ```{r facet_plot1, fig.dim=c(8,8)}
-gt + 
-  geom_point() +
-  facet_wrap( ~ location) # note, the tilde symbol "~" is below the Esc button on your keyboard
+gw <- gt + facet_wrap( ~ location) 
+
+gw + geom_point()
 ```
 
 Things to note:
@@ -85,7 +89,7 @@ Things to note:
  2. There seems to be some curvature (non-linear) trend in the decline in temperature with depth.
  3. The starting temperature (at 5 m depth) varies a lot across the locations.
  4. The rate of decline varies across the locations.
- 5. The rate of decline seems to be steeper for locations that start warmer. So, we can expect the random slopes to be negatively correlated with the random intercepts.
+ 5. The rate of decline seems to be steeper for locations that start warmer. We might expect the random effects of locations on intercepts to be correlated with the random effects of locations on slopes.
 
 These observations give us an idea of what sort of things we might include in our model.
 
@@ -96,44 +100,454 @@ These observations give us an idea of what sort of things we might include in ou
 
 In general, statistical modelling can be said to serve two purposes: explanation and prediction. 
 
-Explanatory models are fit to understand causal processes, to test for differences in treatments or some other explanatory factor. With these models, there is often a particular variable, or set of variables of primary interest. But the model might also include other variables that are not so interesting to us, but we include them because we know they are important in explaining variation in our response variable, or we want to condition on them when evaluating the more interesting effects. 
+We can use models to describe and explain patterns and relationships in our world. If we are doing hypothesis testing (testing whether an effect is non-zero), then we're usually be fitting a model for explanatory purposes. For example, we might be interested in testing for different effects of treatments on the severity of an illness, or to see whether the population of some endangered species has increased or decreased after a decade of monitoring. With these models, there is often a particular variable, or set of variables, that are of primary interest. The model might also include other variables that are not so interesting to us, but we include them because we know they are important in explaining variation in our response variable, or we want to condition on those variables when evaluating the more interesting effects. 
 
-Predictive modelling is less about evaluating evidence for or quantifying effects of interest. The main objective of predictive modelling is to build a model that will make accurate predictions for new data. Predictive accuracy will be greatest if the model structure is a good approximation of the processes that generated the data.
+Predictive modelling is less about quantifying evidence for some relationship or effect (as in a hypothesis test), and more about building a model that can be used to make predictions for new data. We would usually use tools like AIC to choose the 'best' predictive model from a set of candidate models. Generally, the predictive accuracy will be greatest if the model structure is a good approximation of the processes that generated the data.
 
-The idea of the present modelling exercise is more towards the predictive modelling side. There is no treatment variable, for example. We don't have any reason to doubt that temperature changes as we go deeper. We just want to fit a 'good' model, perhaps with the objective of predicting the temperature at new locations with some appropriate level of uncertainty.
+The idea of the present modelling exercise is more about predictive modelling. There is no treatment variable, for example. We know already that temperature declines as we go deeper. We just want to fit a 'good' model, perhaps with the objective of predicting the temperature at new locations with some appropriate level of uncertainty.
 
-## Fixed polynomial with random intercepts
+## Models 
 
-Our first model will be fairly simple -- no doubt, too simple. We can see that `temperature` has a curvilinear relationship with `depth`, so we'll use a polynomial for the fixed part of the model. We can see that the intercepts are definitely different among the locations too, so we'll include a random intercept for `location`.
+### `m_l1_ri`: Linear model with random intercepts
 
-Remember, there are two main packages for fitting mixed models: `nlme` (with the `lme()` function) and `lme4` (with the `lmer()` function). The syntax is pretty similar, but `nlme` uses a separate argument, `random`, for the random effects. Both use Restricted Maximum Likelihood, or REML, to fit the model. 
+We are going to start off with a relatively simple model and successively add terms to make it more complicated as required. This is a forward model-selection process. 
 
-There is also the `glmmTMB` package, with which I believe the syntax is more similar to `lme4`, but has a slightly different algorithm for fitting the model.
+Our first model will no doubt be too simple. We'll start by modelling temperature as a linear function of depth at the population level, and have a random effect of locations on the intercept. 
 
-These models are the essentially the same:
+#### Mathematical description of model `m_l1_ri`
+
+$$
+y_{ij} = \alpha + a_i + \beta x_{ij} + \varepsilon_{ij} \\
+a_{i} \sim \text{N}(0,\sigma_a^2) \\
+\varepsilon_{ij} \sim \text{N}(0,\sigma_\varepsilon^2)
+$$
+
+where
+
+$~~~~~~y_{ij}$ is the temperature at location $i$, observation $j$,
+$~~~~~~x_{ij}$ is the depth at location $i$, observation $j$,
+$~~~~~~\alpha$ is the population-level intercept (overall mean of $y$ at $x=0$),
+$~~~~~~\beta$ is the population-level slope (overall mean change in $y$ per one-unit change in $x$),
+$~~~~~~a_i$ are the random effects of locations on the intercept,
+$~~~~~~\sigma_a^2$ is variance of $a_i$,
+$~~~~~~\sigma_\varepsilon^2$ is error variance. 
+
+#### Fitting the model `m_l1_ri`
 
 ```{r}
-lmer(temperature ~ poly(depth,2) + (1|location), data=temp) # lme4 package
-lme(temperature ~ poly(depth,2), random = ~1|location, data=temp) # nlme package
-glmmTMB::glmmTMB(temperature ~ poly(depth,2) + (1|location), data=temp) # glmmTMB package
+m_l1_ri <- glmmTMB(temperature ~ depth + (1 | location), temp)
+summary(m_l1_ri)
 ```
 
-For now, let's proceed with the `nlme` package.
+The mean squared error is 0.679. AIC score (a measure of how bad out-of-sample predictions will be) is 935.6.
+
+#### Plotting the predictions and residuals from `m_l1_ri`
+
+Let's extract the predictions and plot them atop the data.
 
 ```{r}
-m_d2_i <- lme(temperature ~ poly(depth,2), random = ~1|location, data=temp) 
-summary(m_d2_i)
+gw + geom_point() + geom_line(aes(y=predict(m_l1_ri)), col=2) 
 ```
 
-The intercept, which is averaged across locations, is 16 degrees. Does that look right, according to our figure? The intercept is usually the expected value of *y* when *x* = 0. But most of the lines cross 16 degrees in the *middle* of the series. Why is this model putting the intercept in the middle of the series?
+You might be able to see in this model that the slopes of the lines are the same for each location, but the heights (intercepts) differ.
 
-The `poly()` function converts your *x*-variable into two new variables: a linear one and a quadratic one. It does so in a way that the two variables are uncorrelated, and the easiest way to do that is to centre the variable at zero. 
+The fit doesn't look too bad, but there is certainly room for improvement.
+
+
+```{r}
+gw + 
+  geom_hline(yintercept = 0) +
+  geom_point(aes(y=residuals(m_l1_ri)))
+```
+
+OK, those are baaaaad residuals. Almost every location has some pattern in the residuals. There is plenty of evidence of curvature. Let's do something about that.
+
+### `m_l2_ri` Second-order polynomial model with random intercepts
+
+We can see that `temperature` has a curvilinear relationship with `depth`, so we'll use a polynomial. We'll retain the random intercepts for `location`.
+
+#### Mathematical description of model `m_l2_ri`
+
+$$
+y_{ij} = \alpha + a_i + \beta_1 x_{ij} + \beta_2 x^2_{ij} + \varepsilon_{ij} \\
+a_{i} \sim \text{N}(0,\sigma_a^2) \\
+\varepsilon_{ij} \sim \text{N}(0,\sigma_\varepsilon^2)
+$$
+
+where
+
+
+$~~~~~~y_{ij}$ is the temperature at location $i$, observation $j$,
+$~~~~~~x_{ij}$ is the depth at location $i$, observation $j$,
+$~~~~~~x^2_{ij}$ is the *squared* depth at location $i$, observation $j$,
+$~~~~~~\alpha$ is the population-level intercept (overall mean of $y$ at $x=0$),
+$~~~~~~\beta_1$ is the population-level slope for $x_{ij}$, the linear effect,
+$~~~~~~\beta_2$ is the population-level slope for $x^2_{ij}$, the quadratic effect, 
+$~~~~~~a_i$ are the random effects of locations on the intercept,
+$~~~~~~\sigma_a^2$ is variance of $a_i$,
+$~~~~~~\sigma_\varepsilon^2$ is error variance. 
+
+
+#### Orthogonal vs raw polynomials
+
+Instead of fitting the 'raw' polynomial, `temperature ~ depth + I(depth^2) + ...`, we will use the `poly()` function `temperature ~ poly(depth,2) + ...`. 
+
+The `poly()` function converts your *x*-variable into two new variables: a linear one and a quadratic one. It does so in a way that the two variables are *orthogonal*, or uncorrelated. The predictor variable representing $x$ is not correlated with the predictor variable representing $x^2$.
+
+Here's raw $x$ *vs* raw $x^2$:
+
+```{r}
+plot(temp$depth,temp$depth^2)
+```
+
+Here's the same using orthogonal polynomials:
+
+```{r}
+plot(poly(temp$depth,2), xlab = "linear depth", ylab = "quadratic depth")
+```
+
+See? There's no correlation between the linear predictor and the curvy predictor. 
+
+Why is this preferable? 
+
+The raw quadratic `x^2` increases with `x`. Because they are correlated, you get all the issues associated with having correlated predictors (multicollinearity). The standard errors of both coefficients gets inflated. The `x^2` term captures some of the linear relationship that should be attributed to linear `x` term. The linear trend is spread between the two terms.
+
+When orthogonal polynomials are used, the *linear trend* component is captured by the `poly(x,2)1`  term and the *curvature* component is captured by the `poly(x,2)2` term. Each job is done separately by a single term. This helps clarify any model selection that might ensue. 
+
+A potential down side is that it changes the direct interpretability of the coefficients, but that's ok. In general, I'm more comfortable with having the interpretation of a model independent from the parameterisation of a model. 
+
+One more thing: personally, I never fit anything more than a second-order polynomial. Any higher (cubic, quartic, etc.) and the fit becomes extremely unreliable. And there are usually better options.
+
+#### Fitting the model `m_l2_ri`
+
+```{r}
+m_l2_ri <- glmmTMB(temperature ~ poly(depth,2) + (1|location), data=temp)
+summary(m_l2_ri)
+```
+
+Both the linear and quadratic polynomial terms are very strongly significant. The fit has improved a lot, with a mean square residual has reduced from 0.679 to 0.42.
+
+As an aside, let's look at the raw polynomial model.
+
+```{r}
+glmmTMB(temperature ~ depth + I(depth^2) + (1|location), data=temp) |> summary()
+```
+
+The coefficients have changed, but the model remains essentially the same. Any predictions will be identical to `m_l2_ri`. It is the same model when considered wholistically, just parameterised in a different way. Therefore, the mathematical description of this model that I gave above is not exactly correct (with respect to the $\beta_1$ and $\beta_2$ terms), but overall it is the same model.
+
+#### Plotting the predictions and residuals from `m_l2_ri`
+
+Let's plot the predictions on the data.
+
+```{r}
+gw + geom_point() + geom_line(aes(y=predict(m_l2_ri)), col=2) 
+```
+
+
+
+```{r}
+gw + 
+  geom_hline(yintercept = 0) +
+  geom_point(aes(y=residuals(m_l2_ri)))
+```
+
+These residuals are still bad. It seems we will need different slopes for different folks (well, locations, at least). 
+
+
+
+### `m_l2_ri_rl1`: Polynomial model with random intercepts and random slopes for linear term
+
+Let's fit a second-order polynomial model at the population level, and allow the intercept and linear effects of depth to differ among locations.
+
+#### Mathematical description of model `m_l2_ri_rl1`
+
+$$
+y_{ij} = \alpha + a_i + \beta_1 x_{ij} + b_{1i} x_{ij} + \beta_2 x^2_{ij} + \varepsilon_{ij} \\
+\begin{equation}
+\begin{bmatrix}
+  a_i \\
+  b_{1i} 
+  \end{bmatrix}
+\sim \text{MVN}(\begin{bmatrix}
+  0 \\
+  0\\
+  \end{bmatrix},
+\begin{bmatrix}
+  \sigma^2_a & \\
+  \sigma_{ab_1} & \sigma^2_{b_1} \\
+  \end{bmatrix}
+)
+\end{equation} \\
+\varepsilon_{ij} \sim \text{N}(0,\sigma_\varepsilon^2)
+$$
+
+where
+
+$~~~~~~y_{ij}$ is the temperature at location $i$, observation $j$,
+$~~~~~~x_{ij}$ is the depth at location $i$, observation $j$,
+$~~~~~~x^2_{ij}$ is the *squared* depth at location $i$, observation $j$,
+$~~~~~~\alpha$ is the population-level intercept (overall mean of $y$ at $x=0$),
+$~~~~~~\beta_1$ is the population-level slope for $x_{ij}$, the linear effect,
+$~~~~~~\beta_2$ is the population-level slope for $x^2_{ij}$, the quadratic effect, 
+$~~~~~~a_i$ are the random effects of locations on the intercept,
+$~~~~~~b_{1i}$ are the random effects of locations on the linear effect of $x_{ij}$,
+$~~~~~~\sigma_a^2$ is variance of $a_i$,
+$~~~~~~\sigma^2_{b_1}$ is variance of $b_{1i}$,
+$~~~~~~\sigma_{ab_1}$ is covariance of $a_i$ and $b_{1i}$,
+$~~~~~~\sigma_\varepsilon^2$ is error variance. 
+
+#### Fitting the model `m_l2_ri_rl1`
+
+```{r}
+m_l2_ri_rl1 <- glmmTMB(temperature ~ poly(depth,2) + (depth | location), temp)
+summary(m_l2_ri_rl1)
+```
+
+There is a high negative correlation parameter (-0.93) that tells us that the locations that are cooler at the surface decline in temperature slower. This makes some sense. The likelihood ratio test below clearly favours having this correlation in the model.
+
+```{r}
+m_l2_ri_rl1_nocor <- 
+  update(m_l2_ri_rl1, temperature ~ poly(depth,2) + (1|location) + (0+depth|location))
+
+anova(m_l2_ri_rl1,m_l2_ri_rl1_nocor)
+```
+The `m_l2_ri_rl1` model (with correlated random effects of locations on intercept and slope) is clearly a big improvement over just having random intercepts. The residual standard deviation is down from `r round(sigma( m_l2_ri), 2)` to `r round(sigma(m_l2_ri_rl1), 2)`. The AIC score is down from `r round(AIC( m_l2_ri), 1)` to `r round(AIC(m_l2_ri_rl1), 1)`!
+
+The likelihood ratio tests clearly favour the increasingly complex models that we've been fitting.
+
+```{r}
+anova(m_l1_ri,m_l2_ri,m_l2_ri_rl1)
+```
+
+#### Plotting the predictions of `m_l2_ri_rl1`
+
+```{r}
+gw + geom_point() + geom_line(aes(y=predict(m_l2_ri_rl1)), col=2) 
+```
+
+This is obviously a much better fit. 
+
+Let's see the residuals.
+
+```{r}
+gw + 
+  geom_hline(yintercept = 0) +
+  geom_point(aes(y=residuals(m_l2_ri_rl1)))
+```
+
+Hmm, we're not there yet! We need to see as little pattern in the residuals as possible. The above plot shows that the amount of curvature in the decline in temperature with depth varies among locations. So, let's put this in the model.
+
+
+### `m_l2_rl2` Second-order polynomial model with random effects on all three terms (intercept, linear, quadratic)
+
+
+#### Mathematical description of model `m_l2_rl2`
+
+$$
+y_{ij} = \alpha + a_i + \beta_1 x_{ij} + b_{1i} x_{ij} + \beta_2 x^2_{ij}  + b_{2i} x^2_{ij} + \varepsilon_{ij} \\
+\begin{equation}
+\begin{bmatrix}
+  a_i \\
+  b_{1i} \\
+  b_{2i}
+  \end{bmatrix}
+\sim \text{MVN}(\begin{bmatrix}
+  0 \\
+  0 \\
+  0 \\
+  \end{bmatrix},
+\begin{bmatrix}
+  \sigma^2_a \\
+  \sigma_{ab_1} & \sigma^2_{b_1}\\
+  \sigma_{ab_2} & \sigma_{b_1b_2} & \sigma^2_{b_2} \\
+  \end{bmatrix}
+)
+\end{equation} \\
+\varepsilon_{ij} \sim \text{N}(0,\sigma_\varepsilon^2)
+$$
+
+where
+
+$~~~~~~y_{ij}$ is the temperature at location $i$, observation $j$,
+$~~~~~~x_{ij}$ is the depth at location $i$, observation $j$,
+$~~~~~~x^2_{ij}$ is the *squared* depth at location $i$, observation $j$,
+$~~~~~~\alpha$ is the population-level intercept (overall mean of $y$ at $x=0$),
+$~~~~~~\beta_1$ is the population-level slope for $x_{ij}$, the linear effect,
+$~~~~~~\beta_2$ is the population-level slope for $x^2_{ij}$, the quadratic effect, 
+$~~~~~~a_i$ are the random effects of locations on the intercept,
+$~~~~~~b_{1i}$ are the random effects of locations on the linear term $x_{ij}$,
+$~~~~~~b_{2i}$ are the random effects of locations on the quadratic term $x^2_{ij}$,
+$~~~~~~\sigma_a^2$, $\sigma^2_{b_1}$, and $\sigma^2_{b_2}$ are the variances of $a_i$,
+$b_{1i}$, and $b_{2i}$, respectively,
+$~~~~~~\sigma_{ab_1}$, $\sigma_{ab_2}$, and $\sigma_{b_1b_2}$ are the covariances of the pairs of random effects $a_i$, $b_{1i}$, and $b_{2i}$, and 
+$~~~~~~\sigma_\varepsilon^2$ is error variance. 
+
+Just for fun, here's an alternative way of writing this model.
+
+$$
+y_{ij} = \text{N}(\mu_{ij},\sigma_\varepsilon^2) \\
+\mu_{ij} = a_{i} + b_{1i} x_{ij} + b_{2i} x^2_{ij} \\
+\begin{equation}
+\begin{bmatrix}
+  a_i \\
+  b_{1i} \\
+  b_{2i}
+  \end{bmatrix}
+\sim \text{MVN}(\begin{bmatrix}
+  \alpha \\
+  \beta_1 \\
+  \beta_2 \\
+  \end{bmatrix},
+\begin{bmatrix}
+  \sigma^2_a \\
+  \sigma_{ab_1} & \sigma^2_{b_1}\\
+  \sigma_{ab_2} & \sigma_{b_1b_2} & \sigma^2_{b_2} \\
+  \end{bmatrix}
+)
+\end{equation} \\
+
+\\
+$$
+The only difference in the meanings of the parameters is that the random-effects parameters $a_i$, $b_{1i}$, and $b_{2i}$ are centred on the population means ($\alpha$, $\beta_1$, and $\beta_2$) rather than zero. They're the *actual* fitted intercepts, linear slopes, and quadratic slopes for each population, as opposed to the *deviations* from the population means to the location estimates. Otherwise, it's the same model. 
+
+Oh, the $\mu_{ij}$ are the predicted values for each $y_{ij}$. The observations $y_{ij}$ come from a normal distribution with mean $\mu_{ij}$ and variance $\sigma^2_\varepsilon$. 
+
+
+#### Fitting model `m_l2_rl2`
+
+```{r}
+m_l2_rl2 <- glmmTMB(temperature ~ poly(depth,2) + (poly(depth,2)|location), data=temp)
+summary(m_l2_rl2)
+```
+
+We have reduced the residual standard deviation from `r round(sigma(m_l2_ri_rl1), 2)` to `r round(sigma(m_l2_rl2), 2)`, and the AIC from `r round(AIC( m_l2_ri_rl1), 1)` to `r round(AIC(m_l2_rl2), 1)`. 
+
+The correlation parameters are interesting too. The random effects on the intercept $a_i$ are negatively correlated with the random effects on the linear term $b_{1i}$ and positively correlated with the random effects on the quadratic term $b_{2i}$, and $b_{1i}$ and $b_{2i}$ are negatively correlated. What does this mean?
+
+At locations that are cooler at the surface:
+- temperature decreases faster with depth, and
+- there is less curvature in the decrease in temperature with depth. 
+
+At locations that are warmer at the surface:
+- temperature decreases slow with depth, and
+- there is more curvature in the decrease in temperature with depth. 
+
+Here are those random-effects terms and how they're related to each other.
+
+```{r}
+tibble(Intercept = ranef(m_l2_rl2)$cond$location[,1],
+       Linear = ranef(m_l2_rl2)$cond$location[,2],
+       Quadratic = ranef(m_l2_rl2)$cond$location[,3] ) |> 
+  GGally::ggpairs()
+```
+
+We have fit an *unstructured* variance-covariance matrix to these random effects, which allows each variance and covariance to be estimated separately, and it looks as if it is necessary.
+
+
+#### Plotting the predictions and residuals from model `m_l2_rl2`
+
+```{r}
+gw + geom_point() + geom_line(aes(y=predict(m_l2_rl2)), col=2) 
+```
+
+This is obviously a much better fit. 
+
+Let's see the residuals.
+
+```{r}
+gw + 
+  geom_hline(yintercept = 0) +
+  geom_point(aes(y=residuals(m_l2_rl2)))
+```
+
+There's not very much going on in those residuals now. One remaining issue is that some locations (particularly the latter ones, with higher mean temperatures) seem to have greater variances in their residuals. 
+
+```{r}
+temp |> 
+  mutate(residuals = residuals(m_l2_rl2)) |> 
+  group_by(location) |> 
+  summarise(`SD residuals` = sd(residuals),
+            `Max temperature` = max(temperature)) |> 
+  ggplot() +
+  aes(x=`Max temperature`, y = `SD residuals`) +
+  geom_point()
+```
+
+There's definitely a correlation there, but it does seem to be driven by just a few high-temperature, highly variable locations.
+
+
+
+```{r}
+temp2 <- temp |> 
+  mutate(obs = as_factor(1:n()))
+```
+
+
+
+```{r}
+m_l2_rl2_rv <- glmmTMB(temperature ~ poly(depth,2) + 
+                                    (poly(depth,2) | location) +
+                                     diag(0 + location | obs), 
+                       dispformula = ~ 0,
+                       data = temp2)
+
+library(nlme)
+m_l2_rl2_rv <- nlme::lme(
+  temperature ~ poly(depth,2),
+  random = ~ poly(depth,2) | location,
+  weights = varIdent(form = ~ 1 | location),
+  data=temp 
+  )
+
+```
+
+```{r}
+library(brms)
+brms1 <- brm( bf(temperature ~ poly(depth,2) + (poly(depth,2) | i | location), 
+                 sigma ~ depth),
+               data=temp)
+brms1 |> summary() 
+```
+
+
+```{r}
+brms2 <- brm( bf(temperature ~ poly(depth,2) + (poly(depth,2) | i | location), 
+                 sigma ~ (poly(depth,2) | i | location)),
+               data=temp)
+
+brms2 |> summary() 
+```
+
+```{r}
+brms3 <- update(brms2, 
+                formula = bf(
+                  temperature ~ poly(depth,2) + (poly(depth,2) | i | location), 
+                  sigma ~ (1 | i | location)), newdata=temp)
+
+brms3 |> summary() 
+```
+
+
+```{r}
+brms4 <- update(brms2, 
+                formula = bf(
+                  temperature ~ 1 + depth + I(depth^2) + 
+                    (1 | i | location) +
+                    (0 + depth | i | location) +
+                    (0 + I(depth^2) | location), 
+                  sigma ~ (1 | i | location)), newdata=temp)
+
+brms4 |> summary() 
+```
+
 
 You can see the values of the two polynomial variables for `depth`, along with actual `depth`, here: 
+
 ```{r}
 cbind( depth = seq(5,30,by=5),
        poly1 = predict(poly(temp$depth,2), seq(5,30,by=5)))
 ```
+
 So, when you fit a polynomial model with `poly()`, the intercept becomes the expected value of *y* at the middle value of *x*. Here, the middle value is 17.5 m depth.
 
 At a depth of 17.5 m then, the predicted average temperature is 16 degrees. 
