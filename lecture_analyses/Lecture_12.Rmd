@@ -1,0 +1,386 @@
+---
+title: "161331 Analysis for Lecture 12"
+author: "Adam N. H. Smith"
+output: 
+ html_document:
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
+---
+
+
+```{r setup_rmd, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.dim=c(9,7), out.width="90%", fig.retina=2)
+```
+
+```{r}
+library(tidyverse)
+library(glmmTMB)
+theme_set(theme_bw())
+```
+
+
+```{r}
+
+dd <- tibble(x = 1:10, 
+             `1` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `2` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `3` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `4` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `5` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `6` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `7` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `8` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `9` = 0 + rnorm(1) + (1 + rnorm(1)) * x,
+             `10` = 0 + rnorm(1) + (1 + rnorm(1)) * x) |> 
+  pivot_longer(`1`:`10`, names_to = "Subject", values_to = "y") |> 
+  mutate(Subject = as_factor(Subject))
+          
+
+ggplot(dd) + 
+  geom_line(aes(x=x,y=x), data=tibble(x=1:10,y=1:10), lwd = 1.2) +
+  geom_line(aes(x=x,y=y,group=Subject,col=Subject)) +ylab("y")+xlab("Time")
+
+ggsave("dummy_ancova.png",width = 4,height = 3)
+```
+
+
+```{r}
+
+ddd <- tibble(x = c(1,10), 
+             `1` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `2` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `3` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `4` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `5` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `6` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `7` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `8` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `9` = 10 + rnorm(1) + (2 + rnorm(1)) * x,
+             `10` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `11` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `12` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `13` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `14` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `15` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `16` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `17` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `18` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `19` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x,
+             `20` = 10.5 + rnorm(1) + (0 + rnorm(1)) * x) |> 
+  pivot_longer(`1`:`20`, names_to = "Subject", values_to = "y") |> 
+  mutate(Subject = as_factor(Subject)) |> 
+  mutate(Treatment = ifelse(Subject %in% as.character(1:10),"Treatment 1","Treatment 2"))
+          
+
+ggplot(ddd) + 
+  geom_line(aes(x=x,y=y,group=Treatment), 
+            data = ddd |> group_by(Treatment,x) |> summarise(y=mean(y)), lwd = 1.2) +
+  geom_line(aes(x=x,y=y,group=Subject,col=Subject)) +ylab("y")+xlab("Time") +
+  facet_wrap(~Treatment, nrow = 2)
+
+ggsave("dummy_ancova_treatment.png",width = 4,height = 5.5)
+```
+
+
+```{r}
+
+da <- tibble(x = 1:4, mu = 10 + rnorm(4,0,1.2),
+             `1` = mu + rnorm(1) + rnorm(4,0,.5),
+             `2` = mu + rnorm(1) + rnorm(4,0,.5),
+             `3` = mu + rnorm(1) + rnorm(4,0,.5),
+             `4` = mu + rnorm(1) + rnorm(4,0,.5),
+             `5` = mu + rnorm(1) + rnorm(4,0,.5),
+             `6` = mu + rnorm(1) + rnorm(4,0,.5),
+             `7` = mu + rnorm(1) + rnorm(4,0,.5),
+             `8` = mu + rnorm(1) + rnorm(4,0,.5),
+             `9` = mu + rnorm(1) + rnorm(4,0,.5),
+             `10` = mu + rnorm(1) + rnorm(4,0,.5)) |> 
+  pivot_longer(`1`:`10`, names_to = "Subject", values_to = "y") |> 
+  mutate(Subject = as_factor(Subject)) |> 
+  mutate(Subject = fct_reorder(Subject,y,mean)) 
+  
+          
+
+ggplot(da) + 
+  aes(x=x,y=y) +
+  geom_line(aes(group=Subject,col=Subject)) +
+  geom_line(data = da |> group_by(x) |> summarise(y=mean(y))) +
+  geom_point(aes(group=Subject,col=Subject)) +
+  geom_point(data = da |> group_by(x) |> summarise(y=mean(y)),size = 5) +
+  ylab("y")+xlab("Time")
+
+ggsave("dummy_anova.png",width = 4,height = 3)
+```
+
+
+
+```{r}
+
+dat <- tibble(x = 1:4, mu = 10 + rnorm(4),
+             `1` = mu + rnorm(1) + rnorm(4,0,.5),
+             `2` = mu + rnorm(1) + rnorm(4,0,.5),
+             `3` = mu + rnorm(1) + rnorm(4,0,.5),
+             `4` = mu + rnorm(1) + rnorm(4,0,.5),
+             `5` = mu + rnorm(1) + rnorm(4,0,.5),
+             `6` = mu + rnorm(1) + rnorm(4,0,.5),
+             `7` = mu + rnorm(1) + rnorm(4,0,.5),
+             `8` = mu + rnorm(1) + rnorm(4,0,.5),
+             `9` = mu + rnorm(1) + rnorm(4,0,.5),
+            `10` = mu + rnorm(1) + rnorm(4,0,.5)) |> 
+  mutate(`11` = `2` + 4 +  rnorm(4,0,.5),
+         `12` = `3` + 4 +  rnorm(4,0,.5),
+         `13` = `4` + 4 +  rnorm(4,0,.5),
+         `14` = `5` + 4 +  rnorm(4,0,.5),
+         `15` = `6` + 4 +  rnorm(4,0,.5),
+         `16` = `7` + 4 +  rnorm(4,0,.5),
+         `17` = `8` + 4 +  rnorm(4,0,.5),
+         `18` = `9` + 4 +  rnorm(4,0,.5),
+         `19` = `10` + 4 + rnorm(4,0,.5),
+         `20` = `11` + 4 + rnorm(4,0,.5)) |> 
+  pivot_longer(`1`:`20`, names_to = "Subject", values_to = "y") |> 
+  mutate(Treatment = ifelse(Subject %in% as.character(1:10),
+                            "Trt 1","Trt 2")) |> 
+  mutate(Subject = as_factor(Subject)) |> 
+  mutate(Subject = fct_reorder(Subject,y,mean)) 
+  
+dat |> group_by(Treatment,x) |> summarise(y=mean(y)) |> 
+  ggplot() + 
+  aes(x=x,y=y) +
+  geom_point(aes(x=x,y=y,group=Subject,pch=Treatment,col=Subject), data = dat) +
+  geom_line(aes(group=Subject,col=Subject), data = dat) +
+  geom_point(aes(x=x,y=y,pch=Treatment), size=5) +
+  geom_line() +
+  ylab("y")+xlab("Time") +
+  facet_wrap(~Treatment, nrow=1) +
+  NULL
+
+ggsave("dummy_anova2.png",width = 6,height = 7)
+
+
+```
+
+# Sleep study
+
+```{r}
+data(sleepstudy, package="lme4")
+str(sleepstudy)
+```
+
+
+```{r}
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject)) + 
+  geom_line() + geom_smooth(method = "lm", aes(group = NULL))
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject)) + 
+  geom_line() + geom_smooth(method = "lm", aes(group = NULL)) 
+# ggsave("sleep_lines_linear_together.png")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject)) + 
+  geom_point() + facet_wrap(~Subject) 
+# ggsave("sleep_nolines_linear_panel.png")
+```
+
+
+```{r eval=FALSE, include=FALSE}
+ggplot(sleepstudy, aes(x = Days, y = Reaction, group = Subject)) + 
+  geom_smooth(method = "lm") + geom_point() + facet_wrap(~Subject)  
+ggsave("sleep_lines_linear_panel.png")
+```
+
+
+
+```{r}
+m1 <- glmmTMB(Reaction~ Days + (Days|Subject), data=sleepstudy)
+summary(m1)
+
+```
+
+```{r}
+ranef(m1)
+```
+```{r}
+ggplot(ranef(m1)$cond$Subject) + aes(x=`(Intercept)`, y=`Days`) + geom_point() + geom_smooth()
+```
+
+
+```{r}
+m2 <- glmmTMB(Reaction ~ Days + (1|Subject) + (0+Days|Subject), data=sleepstudy)
+summary(m2)
+```
+```{r}
+anova(m1,m2)
+```
+
+```{r}
+library(marginaleffects)
+pred_subjects <- predictions(m2) |> select(Days,Subject,Reaction,predicted,conf.low,conf.high)
+pred_means <- predictions(m2, by="Days")
+
+ggplot(pred_subjects) +
+  aes(x=Days,group=Subject) +
+  geom_point(aes(y=Reaction,col=Subject),pch=16, alpha=.7) +
+  geom_line(aes(y=predicted,col=Subject)) +
+  geom_ribbon(aes(ymin=conf.low,ymax=conf.high,group=NULL), alpha=.4, data=pred_means) +
+  geom_line(aes(y=predicted,group=NULL), data=pred_means, lwd=1.1) +
+  guides(col=guide_legend(ncol=2)) 
+```
+
+```{r}
+library(visreg)
+visreg(m2, gg=T)
+```
+
+Weird -- seems to have partialled out the subject effect somehow.
+
+```{r}
+visreg(m2, gg=T, by = "Subject") + facet_wrap(vars(Subject), nrow = 4)
+```
+
+
+# Strength study
+
+
+
+```{r}
+data(exercise.repeated, package="asbio")
+d <- exercise.repeated |> mutate(ID = as_factor(ID))
+str(d)
+rm(exercise.repeated)
+```
+
+
+
+```{r}
+ table(d$TRT, d$ID)
+
+```
+
+
+```{r}
+
+ggplot(d, aes(x = day, y = strength, col = TRT)) +
+  geom_point() + facet_wrap(~ID) +
+  scale_x_continuous(breaks=c(0,4,8,12))
+# ggsave("strength.png",width = 9,height = 7)
+```
+
+
+```{r}
+ggplot(d, aes(x = day, y = strength, col = TRT)) +
+  geom_point(aes(col=NULL)) + geom_smooth(method="lm") + facet_wrap(~ID) +
+  scale_x_continuous(breaks=c(0,4,8,12))
+# ggsave("strength_lm.png",width = 9,height = 7)
+```
+
+```{r}
+ggplot(d, 
+       aes(x = factor(day), y = strength, col = TRT, group = TRT)) +
+  geom_jitter(width = 0.1, height=0.1) + geom_smooth() +
+  scale_y_continuous(breaks=c(0,2,4,6,8,10))
+
+```
+
+
+```{r eval=FALSE}
+ggplot(d) +
+  aes(x = factor(day), y = strength, col = TRT, group = TRT) +
+  geom_jitter(width = 0.1, height=0.1) + geom_smooth(method="lm")
+```
+
+
+
+```{r eval=FALSE}
+ggplot(d) + aes(x = day, y = strength, group = ID)) + 
+  geom_line(alpha=.4) + geom_smooth(method="lm", aes(group = TRT, col = TRT)) + 
+  facet_grid(.~TRT) + scale_x_continuous(breaks=c(0,2,4,6,8,10,12))
+
+```
+
+
+```{r}
+library(glmmTMB)
+m1 <- glmmTMB(strength ~ day + TRT + TRT:day + (day | ID), data=d)
+summary(m1)
+```
+
+
+```{r}
+m2 <- glmmTMB(strength ~ day + TRT + TRT:day + (1 | ID) + (0 + day | ID), d)
+summary(m2)
+```
+
+```{r}
+m3 <- update(m2, .~.-day:TRT)
+anova(m3,m2)
+```
+
+```{r}
+summary(m3)
+```
+
+```{r}
+m4 <- update(m3, .~.-TRT)
+anova(m3,m4)
+summary(m4)
+```
+
+
+```{r}
+marginaleffects(m4, variables = "ID", newdata = "mean") 
+```
+
+
+```{r}
+anova(m1,m2)
+```
+
+
+```{r}
+library(marginaleffects)
+predictions(m4)
+```
+
+
+
+```{r}
+lme1 <- nlme::lme(strength ~ TRT + day + TRT:day, random = ~ day|ID, data = d)
+summary(lme1)
+```
+
+```{r}
+nlme::ACF(lme1) |> plot()
+```
+
+
+```{r}
+d |> add_column(residuals = residuals(m4)) |> 
+  ggplot() + aes(x=day,y=residuals,group=ID) +
+  geom_hline(yintercept = 0) + geom_point() + geom_line() + facet_wrap(~ID) +
+  scale_x_continuous(breaks=c(0,4,8,12))
+
+
+ggsave("resids_by_subject.png",width = 9,height = 6)
+```
+
+## Autocor
+
+```{r}
+d$day
+```
+
+```{r}
+glmmTMB(strength ~ TRT + day + TRT:day + (day|ID), data = d)
+```
+

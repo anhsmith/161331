@@ -1,0 +1,415 @@
+---
+title: "161331 Analysis for Lecture 11"
+author: "Adam N. H. Smith"
+output: 
+ html_document:
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+    code_download: true
+---
+
+# Set up
+
+```{r setup_rmd, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
+```
+
+```{r setup_r, include=TRUE}
+library(ggplot2)
+library(tidyverse)
+library(rstatix)
+library(marginaleffects)
+theme_set(theme_bw())
+```
+
+# Load and view data
+
+```{r }
+arth <- read.table("../data/Arthritis.txt", header=T) |> 
+  select(Subject, None=NoROM, TENS=TENSROM, SWD=SWDROM) |> 
+  mutate(Subject = as_factor(Subject))
+
+arth
+head(arth)
+```
+
+The data are in wide format.
+
+Let's look at the correlations of the three variables. 
+
+```{r}
+library(GGally)
+arth %>% ggpairs(columns=2:4, lower=list(continuous='points', mapping=aes(col=Subject)))
+arth %>% ggpairs(columns=2:4, 
+                 lower=list(continuous='points', mapping=aes(col=Subject)),
+                 diag=list(continuous='barDiag', mapping=aes(col=Subject)))
+```
+
+
+```{r}
+arth_messed <- arth %>% 
+  mutate(TENS = -.05*(TENS) + 150,
+         SWD = SWD*2)  
+cov(arth_messed[,2:4]) %>% round(.,1)
+arth_messed %>%
+  ggpairs(columns=2:4, 
+          lower=list(continuous='points', mapping=aes(col=Subject)),
+          diag=list(continuous='barDiag', mapping=aes(col=Subject)))
+```
+
+
+Convert to long format. 
+
+```{r }
+arth_long <- arth |> 
+  pivot_longer(cols = None:SWD,
+               names_to = "Treatment",
+               values_to = "ROM") %>%
+  mutate(Subject = as_factor(Subject),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+  
+
+arth_long %>% head
+arth_long %>% str
+```
+
+Table subject by treatments.
+
+```{r }
+table(arth_long$Subject, arth_long$Treatment)
+```
+
+There is exactly one data point per treatment.
+
+
+```{r}
+arth_long %>%
+  ggplot() +
+  aes(x=Treatment, y=ROM, group=Subject, col=Subject) +
+  geom_point() +
+  geom_line()
+```
+
+
+# Analyse
+
+## ANOVA
+
+```{r}
+aov1 <- aov(ROM ~ Treatment + Subject, data=arth_long)
+summary(aov1)
+
+```
+## ANOVA with Error
+
+
+```{r}
+aov2 <- aov(ROM ~ Treatment + Error(Subject), data=arth_long)
+summary(aov2)
+
+```
+
+
+## `car::Anova`
+
+```{r}
+library(car)
+arth_mat <- as.matrix(arth %>% select(-Subject)) 
+Treatment <- factor(c("None", "TENS", "SWD"))
+
+mod.aov <- 
+  lm(arth_mat ~ 1) %>%
+  Anova(idata = data.frame(Treatment), 
+        idesign = ~Treatment, type="III")
+
+summary(mod.aov, multivariate=F)
+
+```
+
+```{r}
+summary(mod.aov, multivariate=T)
+```
+
+
+```{r}
+library(rstatix)
+arth_long %>% anova_test(dv = ROM, wid = Subject, within = Treatment)
+
+```
+
+## `gls`
+
+
+### compound symmetry
+
+
+```{r}
+library(nlme)
+gls_0 <- gls(ROM ~ 0 + Treatment, data = arth_long)
+```
+
+
+```{r}
+library(nlme)
+gls_cs <- gls(ROM ~ 0 + Treatment, cor = corCompSymm(, form = ~1 | Subject ),
+    data = arth_long)
+```
+
+
+```{r}
+cor(arth[,2:4])
+c(cor(arth[,2:4])["None","TENS"], 
+  cor(arth[,2:4])["None","SWD"], 
+  cor(arth[,2:4])["SWD","TENS"]) %>% mean
+```
+
+
+refit with maximum likelihood
+
+```{r}
+
+gls_cs_ML <- gls(ROM ~ Treatment, cor = corCompSymm(, form = ~1 | Subject ),
+    data = arth_long, method = "ML")
+
+gls_cs_null_ML <- gls(ROM ~ 1, cor = corCompSymm(, form = ~1 | Subject ),
+    data = arth_long, method = "ML")
+
+anova(gls_cs_null_ML, gls_cs_ML)
+
+```
+
+### unstructured covariance
+
+```{r}
+
+gls_s <- gls(ROM ~ Treatment, cor = corSymm(, form = ~1 | Subject ), data = arth_long)
+summary(gls_s)
+```
+
+```{r}
+gls_sv <- gls(ROM ~ 0 + Treatment, 
+              cor = corSymm(, form = ~1 | Subject ), 
+              weights = varIdent(form = ~1 | Treatment),
+              data = arth_long)
+summary(gls_sv)
+
+marginalmeans(gls_sv, variables = "Treatment")
+```
+
+
+
+```{r}
+
+gls_s_ML <- gls(ROM ~ Treatment, cor = corSymm(, form = ~1 | Subject ), data = arth_long, method = "ML")
+anova(gls_s_ML, gls_cs_ML)
+```
+
+
+```{r}
+library(marginaleffects)
+preds <- predictions(gls_s) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+marmeans <- marginalmeans(gls_s,"Treatment")
+preds %>%
+  ggplot() +
+  aes(x=Treatment,y=predicted,ymin=conf.low,ymax=conf.high,group=Subject,col=Subject) +
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(position = position_dodge(.8), width=0) +
+  geom_point(aes(y=ROM), pch=4, position = position_dodge(.8)) +
+  geom_point(aes(x=value,y=marginalmean), inherit.aes=F, size=3, data=marmeans) +
+  geom_errorbar(aes(x=value,ymin=conf.low,ymax=conf.high), inherit.aes=F,data=marmeans, width=0) +
+  ylab("Range of movement score")
+
+```
+
+
+
+### lme4
+
+
+```{r}
+library(lme4)
+
+lmer1 <- lmer(ROM ~ Treatment + (1|Subject), data=arth_long)
+
+```
+
+```{r}
+library(marginaleffects)
+preds <- predictions(lmer1) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+marmeans <- marginalmeans(lmer1,"Treatment")
+preds %>%
+  ggplot() +
+  aes(x=Treatment,y=predicted,ymin=conf.low,ymax=conf.high,group=Subject,col=Subject) +
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(position = position_dodge(.8), width=0) +
+  geom_point(aes(y=ROM), pch=4, position = position_dodge(.8)) +
+  geom_point(aes(x=value,y=marginalmean), inherit.aes=F, size=3, data=marmeans) +
+  geom_errorbar(aes(x=value,ymin=conf.low,ymax=conf.high), inherit.aes=F,data=marmeans, width=0) +
+  ylab("Range of movement score")
+
+```
+
+```{r}
+preds %>%
+  mutate(Residuals = ROM - predicted) %>%
+  ggplot(aes(x=Treatment,y=Residuals,col=Subject, group=Subject)) +
+  geom_hline(yintercept=0) +
+  geom_point(position=position_dodge(.05)) +
+  geom_line(position=position_dodge(.05)) +
+  ggtitle("Residuals by Treatment and Subject")
+```
+
+
+### glmmTMB
+
+```{r}
+library(glmmTMB)
+library(marginaleffects)
+
+lmm0 <- glmmTMB(ROM ~ Treatment, data=arth_long)
+summary(lmm0)
+```
+
+
+```{r}
+lmm1 <- glmmTMB(ROM ~ Treatment + (1|Subject), data=arth_long)
+summary(lmm1)
+```
+
+```{r}
+marginalmeans(lmm1, "Treatment") %>% summary
+```
+
+
+```{r}
+lmm2 <- glmmTMB(ROM ~ Treatment + cs(0 + Treatment | Subject ), dispformula=~0, data=arth_long)
+summary(lmm2)
+```
+
+
+```{r}
+ranef(lmm2)
+```
+
+
+```{r}
+lmm2no0 <-  glmmTMB(ROM ~ Treatment + cs( Treatment | Subject), dispformula=~0, data=arth_long) 
+summary(lmm2no0)
+lmm2_ <-  glmmTMB(ROM ~ Treatment + ( 1 + Treatment | Subject), dispformula=~0, data=arth_long) 
+summary(lmm2_)
+
+```
+
+
+```{r}
+lmm3 <- glmmTMB(ROM ~ Treatment + us(0 + Treatment | Subject), dispformula=~0, data=arth_long)
+summary(lmm3)
+```
+
+
+```{r}
+library(marginaleffects)
+preds <- predictions(lmm3) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+# marmeans <- marginalmeans(lmm3,"Treatment")
+
+```
+
+```{r}
+drop1(lmm1)
+```
+
+```{r}
+anova(lmm0,lmm1,lmm2,lmm3)
+```
+
+```{r}
+anova(lmm1,lmm2,lmm3)
+```
+
+```{r}
+AIC(lmm1,lmm2,lmm3)
+```
+
+```{r}
+lmm1x <- glmmTMB(ROM ~ 1 + (1 | Subject), dispformula=~1, data=arth_long)
+lmm2x <- glmmTMB(ROM ~ 1 + cs(0 + Treatment | Subject), dispformula=~0, data=arth_long)
+lmm3x <- glmmTMB(ROM ~ 1 + us(0 + Treatment | Subject), dispformula=~0, data=arth_long)
+```
+
+```{r}
+anova(lmm1,lmm1x)
+anova(lmm2,lmm2x)
+anova(lmm3,lmm3x)
+```
+
+```{r}
+library(marginaleffects)
+preds <- predictions(lmm1) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+marmeans <- marginalmeans(lmm1,"Treatment")
+preds %>%
+  ggplot() +
+  aes(x=Treatment,y=predicted,ymin=conf.low,ymax=conf.high,group=Subject,col=Subject) +
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(position = position_dodge(.8), width=0) +
+  geom_point(aes(y=ROM), pch=4, position = position_dodge(.8)) +
+  geom_point(aes(x=value,y=marginalmean), inherit.aes=F, size=3, data=marmeans) +
+  geom_errorbar(aes(x=value,ymin=conf.low,ymax=conf.high), inherit.aes=F,data=marmeans, width=0) +
+  ylab("Range of movement score") 
+
+```
+
+```{r}
+library(marginaleffects)
+lmm2_ <- glmmTMB(ROM ~ 0 + Treatment + us(0 + Treatment | Subject), dispformula=~0, data=arth_long)
+
+preds <- predictions(lmm2_) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+marmeans <- confint(lmm2_) %>% as_tibble(rownames = "value") %>% 
+  mutate(value=substring(value,10)) %>%
+  dplyr::filter(value %in% c("None","TENS","SWD"))
+preds %>%
+  ggplot() +
+  aes(x=Treatment,y=predicted,ymin=conf.low,ymax=conf.high,group=Subject,col=Subject) +
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(position = position_dodge(.8), width=0) +
+  geom_point(aes(y=ROM), pch=4, position = position_dodge(.8)) +
+  geom_point(aes(x=value,y=Estimate), inherit.aes=F, size=3, data=marmeans) +
+  geom_errorbar(aes(x=value,ymin=`2.5 %`,ymax=`97.5 %`), inherit.aes=F,data=marmeans, width=0) +
+  ylab("Range of movement score")
+
+```
+
+
+```{r}
+library(marginaleffects)
+lmm3_ <- glmmTMB(ROM ~ 0 + Treatment + us(0 + Treatment | Subject), dispformula=~0, data=arth_long)
+
+preds <- predictions(lmm3_) %>%
+  mutate(Subject=fct_reorder(Subject,predicted,mean),
+         Treatment = fct_relevel(Treatment,"None","TENS","SWD")) 
+marmeans <- confint(lmm3_) %>% as_tibble(rownames = "value") %>% 
+  mutate(value=substring(value,10)) %>%
+  dplyr::filter(value %in% c("None","TENS","SWD"))
+preds %>%
+  ggplot() +
+  aes(x=Treatment,y=predicted,ymin=conf.low,ymax=conf.high,group=Subject,col=Subject) +
+  geom_point(position = position_dodge(.8)) +
+  geom_errorbar(position = position_dodge(.8), width=0) +
+  geom_point(aes(y=ROM), pch=4, position = position_dodge(.8)) +
+  geom_point(aes(x=value,y=Estimate), inherit.aes=F, size=3, data=marmeans) +
+  geom_errorbar(aes(x=value,ymin=`2.5 %`,ymax=`97.5 %`), inherit.aes=F,data=marmeans, width=0) +
+  ylab("Range of movement score")
+
+```
