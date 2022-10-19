@@ -106,9 +106,9 @@ Predictive modelling is less about quantifying evidence for some relationship or
 
 The idea of the present modelling exercise is more about predictive modelling. There is no treatment variable, for example. We know already that temperature declines as we go deeper. We just want to fit a 'good' model, perhaps with the objective of predicting the temperature at new locations with some appropriate level of uncertainty.
 
-# Fitting models
+# Models that treat depth as continuous for fixed and random effects
 
-## Model 1: Linear model with random intercepts (`lm_ri`)
+## Model 1.1: Linear model with random intercepts (`lm_ri`)
 
 We are going to start off with a relatively simple model and successively add terms to make it more complicated as required. This is a forward model-selection process. 
 
@@ -152,7 +152,8 @@ The mean squared error is 0.679. AIC score (a measure of how bad out-of-sample p
 Let's extract the predictions and plot them atop the data.
 
 ```{r, fig.dim=c(8,8)}
-gw + geom_point() + geom_line(aes(y=predict(lm_ri)), col=2) 
+gw + geom_point() + geom_line(aes(y=predict(lm_ri)), col=2)  +
+  ggtitle("Predictions by location")
 ```
 
 
@@ -162,7 +163,8 @@ You might be able to see in this model that the slopes of the lines are the same
 ```{r fig.dim=c(8,5)}
 gt + 
   geom_line(aes(y=predict(lm_ri),col=location), alpha=.6) + 
-  geom_point(aes(col=location), alpha = .6) 
+  geom_point(aes(col=location), alpha = .6)  +
+  ggtitle("Predictions")
 ```
 
 This model is a good start, but there is certainly room for improvement.
@@ -172,12 +174,13 @@ Let's take a look at the residuals.
 ```{r, fig.dim=c(8,8)}
 gw + 
   geom_hline(yintercept = 0) +
-  geom_point(aes(y=residuals(lm_ri)))
+  geom_point(aes(y=residuals(lm_ri))) +
+  ggtitle("Residuals by location")
 ```
 
 Those are some baaaaad residuals. Almost every location has some pattern in the residuals. There is plenty of evidence of curvature. Let's do something about that.
 
-## Model 2: Quadratic (second-order polynomial) model with random intercepts (`qm_ri`)
+## Model 1.2: Quadratic (second-order polynomial) model with random intercepts (`qm_ri`)
 
 We can see that `temperature` has a curvilinear relationship with `depth`, so we'll use a polynomial. We'll retain the random intercepts for `location`.
 
@@ -217,19 +220,27 @@ Instead of fitting the 'raw' polynomial, `temperature ~ depth + I(depth^2) + ...
 
 The `poly()` function converts your *x*-variable into two new variables: a linear one and a quadratic one. It does so in a way that the two variables are *orthogonal*, or uncorrelated. The predictor variable representing $x$ is not correlated with the predictor variable representing $x^2$.
 
-Here's raw $x$ *vs* raw $x^2$:
+Here are the raw and orthogonal versions of $x$ and $x^2$.
 
 ```{r}
-plot(temp$depth,temp$depth^2)
+Depths <- tibble(`Raw depth` = temp$depth) |> 
+  mutate(
+    `Raw depth squared` = `Raw depth`^2,
+    `Orthogonal depth` = poly(`Raw depth`,2)[,1],
+    `Orthogonal depth squared` = poly(`Raw depth`,2)[,2]
+    ) |> 
+  distinct(`Raw depth`, .keep_all= TRUE)
+
+Depths
 ```
 
-Here's the same using orthogonal polynomials:
+Let's plot them against each other.
 
-```{r}
-plot(poly(temp$depth,2), xlab = "linear depth", ylab = "quadratic depth")
+```{r message=FALSE, fig.dim=c(8,8)}
+Depths |> GGally::ggpairs(diag = list(continuous = "blank"))
 ```
 
-See? There's no correlation between the linear predictor and the curvy predictor. 
+You can see that *orthogonal* depth squared isn't correlated with either *raw* depth or  *orthogonal* depth. In contrast, *raw* depth squared is very strongly correlated with *raw* depth. 
 
 Why is this preferable? 
 
@@ -263,7 +274,8 @@ The coefficients have changed, but the model remains essentially the same. Any p
 Let's plot the predictions on the data.
 
 ```{r, fig.dim=c(8,8)}
-gw + geom_point() + geom_line(aes(y=predict(qm_ri)), col=2) 
+gw + geom_point() + geom_line(aes(y=predict(qm_ri)), col=2)  +
+  ggtitle("Predictions by location")
 ```
 
 The lines are now curved but they're still parallel, because there is still no random effect of locations on the slope.
@@ -271,21 +283,23 @@ The lines are now curved but they're still parallel, because there is still no r
 ```{r fig.dim=c(8,5)}
 gt + 
   geom_line(aes(y=predict(qm_ri),col=location), alpha=.6) + 
-  geom_point(aes(col=location), alpha = .6) 
+  geom_point(aes(col=location), alpha = .6)  +
+  ggtitle("Predictions")
 ```
 
 
 ```{r, fig.dim=c(8,8)}
 gw + 
   geom_hline(yintercept = 0) +
-  geom_point(aes(y=residuals(qm_ri)))
+  geom_point(aes(y=residuals(qm_ri))) +
+  ggtitle("Residuals by location")
 ```
 
 These residuals are still bad. It seems we will need different slopes for different folks (well, locations, at least). 
 
 
 
-## Model 3: Polynomial model with random intercepts and random slopes for linear term (`qm_ris`)
+## Model 1.3: Polynomial model with random intercepts and random slopes for linear term (`qm_ris`)
 
 Let's fit a second-order polynomial model at the population level, and allow the intercept and linear effects of depth to differ among locations.
 
@@ -344,7 +358,59 @@ qm_ris <- glmmTMB(temperature ~ poly(depth,2) + (depth | location), temp)
 summary(qm_ris)
 ```
 
-There is a high negative correlation parameter (-0.93) that tells us that the locations that are cooler at the surface decline in temperature slower. This makes some sense. The likelihood ratio test below clearly favours having this correlation in the model.
+The residual standard deviation is down from `r round(sigma( qm_ri), 2)` to `r round(sigma(qm_ris), 2)`. The AIC score is down from `r round(AIC( qm_ri), 1)` to `r round(AIC(qm_ris), 1)`!
+
+The likelihood ratio tests clearly favour the increasingly complex models that we've been fitting.
+
+```{r}
+anova(lm_ri,qm_ri,qm_ris)
+```
+
+### Interpreting random effects of location on the intercept and slope, and their correlation
+
+Let's look at the random effects in this model.
+
+```{r}
+ranef(qm_ris)
+```
+
+Each line is a location. The first column gives us the effect of the locations on the intercept, and the second column gives us the effect of the locations on the slope. 
+
+If you add the population-level intercept (16.0222) to the first column, you get the actual location-specific intercepts. If you add the population-level slope (-42.9959) to the second column, you get the actual location-specific slopes.
+
+Let's do so.
+
+```{r}
+location_intercepts_and_slopes <- 
+  ranef(qm_ris)$cond$location |> 
+    transmute(
+      `Location intercept` = `(Intercept)` + 16.0222,
+      `Location slope` = `depth` + -42.9959 
+    ) 
+
+location_intercepts_and_slopes |> head()
+```
+
+These values don't make a lot of sense with respect to the actual raw values of $x$ and $y$. This is a consequence of our use of the `poly()` function to change the scale of $x$. 
+
+In the summary output above, there is a high negative correlation (-0.93) between the random effects of location on the intercept and slope. This tells us that the locations that are warmer at the surface decline in temperature faster. This makes some sense. The temperature near the surface likely fluctuations more in the short term than the  temperature at depth.
+
+We can see this if we plot the location-specific intercepts and slopes we calculated above.
+
+
+```{r, fig.dim=c(8,8)}
+location_intercepts_and_slopes |> 
+  ggplot() + aes(x = `Location intercept`,
+                 y = `Location slope`) +
+  geom_point() +
+  annotate(geom="text", x=22, y=-42.9, label="Correlation = -0.93") +
+  ggtitle("Negative correlation between random effects",
+          subtitle = "Locations that are warmer at the surface (high intercept) cool faster with depth (larger negative slope)")
+```
+
+What does this mean? In the plots of predictions in the next section, you can see that the lines the start higher decline faster, and the lines that start lower decline slower.
+
+What happens if we remove the correlation parameter? Let's fit the model with the correlation removed (by putting the random intercepts and random slopes into separate terms in the formula) and compare the two models with a likelihood ratio test. 
 
 ```{r}
 qm_ris_nocor <- 
@@ -353,24 +419,21 @@ qm_ris_nocor <-
 anova(qm_ris,qm_ris_nocor)
 ```
 
-The `qm_ris` model (with correlated random effects of locations on intercept and slope) is clearly a big improvement over just having random intercepts. The residual standard deviation is down from `r round(sigma( qm_ri), 2)` to `r round(sigma(qm_ris), 2)`. The AIC score is down from `r round(AIC( qm_ri), 1)` to `r round(AIC(qm_ris), 1)`!
+The `qm_ris` model (with correlated random effects of locations on intercept and slope) is clearly a big improvement over just having random intercepts. 
 
-The likelihood ratio tests clearly favour the increasingly complex models that we've been fitting.
-
-```{r}
-anova(lm_ri,qm_ri,qm_ris)
-```
 
 ### Plotting the predictions and residuals of `qm_ris`
 
 ```{r, fig.dim=c(8,8)}
-gw + geom_point() + geom_line(aes(y=predict(qm_ris)), col=2) 
+gw + geom_point() + geom_line(aes(y=predict(qm_ris)), col=2)  +
+  ggtitle("Predictions by location")
 ```
 
 ```{r fig.dim=c(8,5)}
 gt + 
   geom_line(aes(y=predict(qm_ris),col=location), alpha=.6) + 
-  geom_point(aes(col=location), alpha = .6) 
+  geom_point(aes(col=location), alpha = .6)  +
+  ggtitle("Predictions")
 ```
 
 This is obviously a much better fit. The lines are no longer parallel due to the random effect of locations on the linear slope. There is still no random effect of the quadratic slope though. 
@@ -380,13 +443,14 @@ Let's see the residuals.
 ```{r, fig.dim=c(8,8)}
 gw + 
   geom_hline(yintercept = 0) +
-  geom_point(aes(y=residuals(qm_ris)))
+  geom_point(aes(y=residuals(qm_ris))) +
+  ggtitle("Residuals by location")
 ```
 
 Hmm, we're definitely not there yet! We need to see as little pattern in the residuals as possible. The above plot shows that the amount of curvature in the decline in temperature with depth varies among locations. So, let's put this in the model.
 
 
-## Model 4: Polynomial model with random effects on all three terms (intercept, linear, quadratic) (`qm_rq`)
+## Model 1.4: Polynomial model with random effects on all three terms (intercept, linear, quadratic) (`qm_rq`)
 
 
 ### Mathematical description of model `qm_rq`
@@ -482,12 +546,17 @@ The correlation parameters are interesting too. The random effects on the interc
 
 
 At locations that are cooler at the surface:
+
 - temperature decreases faster with depth, and
+
 - there is less curvature in the decrease in temperature with depth. 
 
 At locations that are warmer at the surface:
+
 - temperature decreases slow with depth, and
+
 - there is more curvature in the decrease in temperature with depth. 
+
 
 Here are those random-effects terms and how they're related to each other.
 
@@ -495,7 +564,8 @@ Here are those random-effects terms and how they're related to each other.
 tibble(Intercept = ranef(qm_rq)$cond$location[,1],
        Linear = ranef(qm_rq)$cond$location[,2],
        Quadratic = ranef(qm_rq)$cond$location[,3] ) |> 
-  GGally::ggpairs()
+  GGally::ggpairs() +
+  ggtitle("Relationships between random effects")
 ```
 
 We have fit an *unstructured* variance-covariance matrix to these random effects, which allows each variance and covariance to be estimated separately, and it looks as if it is necessary.
@@ -504,12 +574,15 @@ We have fit an *unstructured* variance-covariance matrix to these random effects
 ### Plotting the predictions and residuals from model `qm_rq`
 
 ```{r, fig.dim=c(8,8)}
-gw + geom_point() + geom_line(aes(y=predict(qm_rq)), col=2) 
+gw + geom_point() + geom_line(aes(y=predict(qm_rq)), col=2)  +
+  ggtitle("Predictions by location")
 ```
+
 ```{r fig.dim=c(8,5)}
 gt + 
   geom_line(aes(y=predict(qm_rq),col=location), alpha=.6) + 
-  geom_point(aes(col=location), alpha = .6) 
+  geom_point(aes(col=location), alpha = .6)  +
+  ggtitle("Predictions")
 ```
 
 
@@ -523,7 +596,8 @@ gw +
                   ymax = + 2 * sigma(qm_rq)), 
               fill = 4, alpha = .4) +
   geom_hline(yintercept = 0) +
-  geom_point(aes(y=residuals(qm_rq))) 
+  geom_point(aes(y=residuals(qm_rq)))  +
+  ggtitle("Residuals by location (with 95% coverage bands)")
   
 ```
 
@@ -542,7 +616,8 @@ temp |>
   ggplot() +
   aes(x=location, y = `SD residuals`) +
   geom_point() +
-  ggtitle("Std deviation of residuals by location")
+  ggtitle("Std deviation of residuals by location") +
+  xlab("Locations (ordered by their mean temperatures)")
 ```
 
 At the start, the locations were ordered by their mean temperatures. Location 1 has the lowest mean temperature; location 56 the highest.
@@ -558,110 +633,404 @@ temp |>
   ggplot() +
   aes(x=`Mean temperature`, y = `SD of the residuals`) +
   geom_point() +
+  geom_smooth() +
   ggtitle("Std deviation of residuals by mean temperature, per location")
 ```
 
 
-There's definitely a correlation there. The higher-temperature locations have greater residual variance. We can actually put this relationship in the model. 
+There's definitely a correlation there. The higher-temperature locations have greater residual variance. 
 
-## Model 5: Adding model of residual variance of locations given mean temperature (`qm_rq_vtemp`)
+### Analysis of residuals vs depth
 
-### Mathematical description of model `qm_rq_vtemp`
+Another way to think about this is that the variance of location effects is changes across the different depths.
 
-This model is the same as `qm_rq`, but with the following edit for the residual errors.
+We saw this in the first plot we made.
+
+```{r}
+gt + geom_jitter(width = 0.5, alpha = .4)
+```
+
+If we look at the residuals from the current model across depths, we can see that the variance of the residuals does differ among depths; it is much higher at depths 5 and 10 than it is at depth 30. Interestingly, locations with high residual at depth 5 had low residual at depth 10. 
+
+```{r}
+temp |> 
+  mutate(residuals = residuals(qm_rq)) |> 
+  ggplot() +
+  aes(x=depth, y = residuals) + 
+  geom_point(aes(col=location),alpha=.3)  +
+  geom_line(aes(group=location, col=location),alpha=.3)  +
+  geom_boxplot(aes(group=depth), alpha=0) +
+  ggtitle("Residuals by depth, coloured by location") +
+  theme(legend.position="none")
+```
+
+Perhaps our fully-varying polynomial model is not doing as well as we'd thought. Let's rethink our approach.
+
+
+# Models that treat depth as continuous for fixed effects and categorical for random effects
+
+In this set of models, we will keep the population-level polynomial fit of temperature to depth, but we'll make a substantial change to the random part of the model, the part that deals with the differences among locations.  
+
+For the random part of the model, instead of treating depth as continuous and adjusting the polynomial coefficients to each location, we will treat depth as a factor and ***fit a different random effect for each location within each depth stratum***. That is, each location will have a random effect for depth 5, a random effect for depth 10, ..., and a random effect for depth 30. 
+
+The random effects will have different variances for different depths. 
+
+Further, because some locations have consistently higher-than-average temperatures, and others have consistently lower-than-average temperatures, we will allow the random effects of locations to be correlated between pairs of depth strata. 
+
+Because there is no replication at the lowest level (there is only one measurement from each location at each depth), these depth-by-location random effects will replace the error term. The error term must therefore be removed.
+
+We will fit two variants of this model, each with a different variance-covariance structure for the random effects of location with respect to the depth categories.
+
+
+## Model 2.1: Fixed polynomial model of depth and depth-specific random effects of locations with **unstructured correlation matrix** (`qm_rf_us`)
+
+### Mathematical description of model `qm_rf_us`
+
+The population-level part of this model is the same polynomial function of depth as a continuous predictor. 
+
+We have removed the random effects of location on the intercept and polynomial terms, and the error term, and replaced this with depth-and-location-specific random effects $a_{\text{location }i, \text{ depth }j}$, with unstructured variance-covariance matrix.
 
 $$
-\varepsilon_{ij} \sim \text{N}(0, \sigma^2_{\varepsilon ,i}) \\
-\sigma^2_{\varepsilon,i} = e^{\tau_0+\tau_1 \bar{y}_i}
+y_{ij} = \alpha + \beta_1 x_{j} + \beta_2 x^2_{j} + a_{ij} \\
+\begin{equation}
+\begin{bmatrix}
+  a_{i1} \\
+  a_{i2} \\
+  a_{i3} \\
+  a_{i4} \\
+  a_{i5} \\
+  a_{i6} 
+  \end{bmatrix}
+\sim \text{MVN}(\begin{bmatrix}
+  0 \\
+  0 \\
+  0 \\
+  0 \\
+  0 \\
+  0 \\
+  \end{bmatrix},
+\begin{bmatrix}
+  \sigma^2_1 \\
+  \sigma_{12} & \sigma^2_{2}\\
+  \sigma_{13} & \sigma_{23} & \sigma^2_{3} \\
+  \sigma_{14} & \sigma_{24} &  \sigma_{34} & \sigma^2_{4} \\
+  \sigma_{15} & \sigma_{25} &  \sigma_{35} &  \sigma_{45} & \sigma^2_{5} \\
+  \sigma_{16} & \sigma_{26} &  \sigma_{36} &  \sigma_{46} &  \sigma_{56} & \sigma^2_{6} \\  \end{bmatrix}
+)
+\end{equation} \\
 $$
-where 
 
-$~~~~~\sigma^2_{\varepsilon,i}$ is the variance of residuals of location $i$,
+where
 
-$~~~~~\bar{y}_i$ is the mean temperature for location $i$,
+$~~~~~~i$ is an index for location (1,2,...,56),
 
-$~~~~~\tau_0$ and $\tau_1$ are the intercept and slope of the log-linear relationship between $\sigma^2_{\varepsilon,i}$ and $\bar{y}_i$.
+$~~~~~~j$ is an index from 1 to 6 identifying the six depth strata (depth $x_1$ = 5, depth $x_2$ = 10, ..., depth $x_6$ = 30),
+
+$~~~~~~y_{ij}$ is the temperature at location $i$, depth stratum $j$,
+
+$~~~~~~x_{j}$ is the depth at depth stratum $j$,
+
+$~~~~~~x^2_{j}$ is the square of depth $x_j$,
+
+$~~~~~~\alpha$ is the population-level intercept (overall mean of $y$ at $x=0$),
+
+$~~~~~~\beta_1$ is the population-level slope for the linear effect of depth $x_{j}$,
+
+$~~~~~~\beta_2$ is the population-level slope for the quadratic effect of depth $x^2_{j}$,
+
+$~~~~~~a_{ij}$ is the random effect of locations $i$ in depth stratum $j$,
+
+$~~~~~~\sigma_1^2$ is the variance of random location effects $a_{i1}$ in depth stratum $1$ (depth = 5), 
+
+$~~~~~~\sigma^2_{2}$ is the variance of random location effects $a_{i2}$ in depth stratum $2$ (depth = 10), 
+
+$~~~~~~...$,
+
+$~~~~~~\sigma_{12}=\text{Cov}(a_{i1},a_{i2})$, the covariance of random location effects between depth stratum $1$ (depth 5) and depth stratum $2$ (depth 10),
+
+$~~~~~~\sigma_{13}=\text{Cov}(a_{i1},a_{i3})$, the covariance of random location effects between depth stratum $1$ (depth 5) and depth stratum $3$ (depth 15),
+
+$~~~~~~...$.
+
+The unstructured variance-covariance matrix means that a different variance is estimated for each depth stratum ($\sigma^2_j$) and a different covariance is estimated for each pair of depth strata ($\sigma_{jk}$ for $j \neq k$.)
+
+Notice that we removed the error term. We have random effects of each location at each depth. With no replication at the lowest level, there is nothing more for an error term to do.
 
 
-### Fitting model `qm_rq_vtemp`
+### Fitting model `qm_rf_us`
 
 ```{r eval=TRUE, include=TRUE}
-temp <- temp |> 
-  group_by(location) |> 
-  mutate(mean_temp = mean(temperature)) |> 
-  ungroup()
-
-qm_rq_vtemp <- update(qm_rq,
-                      dispformula = ~ mean_temp,
-                      data = temp)
-
-summary(qm_rq_vtemp)
+# define Depth, a factor version of depth
+qm_rf_us <- glmmTMB(temperature ~ poly(depth,2) + 
+                          us(0 + factor(depth) | location),
+                          dispformula = ~ 0,
+                    data = temp)
 ```
 
-We can check the model intercept ($\tau_0$) and slope ($\tau_1$) for the dispersion model from the summary above, and plot the linear relationship between $\log(\sigma^2_\varepsilon)$ and the mean temperature $\bar{y}_i$.
+`us(0 + as_factor(depth) | location)` gives us an unstructured var-cov matrix for the random effects of location for each level of the depth factor.
+
+`dispformula = ~ 0` removes the error term. 
+
+Now let's summarise the model.
+
+```{r eval=TRUE, include=TRUE}
+# fitting again with factor(depth) pre-prepared because the output of summary() is nicer
+glmmTMB(temperature ~ poly(depth,2) + 
+                          us(0 + Depth | location),
+                          dispformula = ~ 0,
+                    data = temp |> mutate(Depth = as_factor(depth))) |> 
+  summary()
+```
+
+Wow, look at that drop in AIC! This is a much stronger model than the others. 
+
+### Interpreting the random effects of model `qm_rf_us`
+
+So now, we have a random effect **for each location for each depth stratum**.
+
+Here are those effects for the  first 10 locations.
 
 ```{r}
-temp |> 
-  mutate(
-    log_sigma_squared = predict(qm_rq_vtemp, type = "disp")^2 |> log()
-    ) |> 
-  ggplot() + aes(x=mean_temp, y=log_sigma_squared) + geom_point() +
-  geom_abline(intercept=-16.2891, slope=0.7824)
-  
+round(ranef(qm_rf_us)$cond$location,2) |> head(10)
 ```
 
-Let's see the fitted values of the residual standard deviation from the previous model next to the fitted values of residuals, by location.
+Here is the variance-covariance matrix (represented by standard deviations and correlations).
 
 ```{r}
+VarCorr(qm_rf_us)
+```
+
+The `Std.Dev.` represent the standard deviations of location effects within each depth stratum. For example, the location effects have a standard deviation of 1.64 in the Depth5 stratum. This means that the average location differs from what is predicted given the population-polynomial model by 1.64 degrees. The standard deviation of location effects in the Depth10 stratum is 1.47, etc. The variability among locations starts off high near the surface and decreases with depth.
+
+The triangle of `Corr` values are the correlations of the location effects for each pair of depth strata. They tell us how similar the random effects of location are between the depth strata. If the warmest locations at Depth5 are also the warmest locations at Depth10, then this is reflected by a high positive correlation for these two strata.
+
+There is an interesting pattern in these correlations. They are strongest just below the diagonal, and get weaker towards the bottom-right corner. This tells us that the correlations are related to the difference in depth. Adjacent depth strata (strata that are only 5 units apart) are most strongly correlated (e.g., $\rho_{12}=0.927$, $\rho_{23}=0.962$, ..., $\rho_{56}=0.927$). That is, if a location is relatively warm at Depth15, that same location will likely also be warm at Depth10 and Depth20. Then, correlations are quite strong for depth strata that are two steps (10 units) apart, a little less for three steps (15 units), ..., until finally there is only a weak correlation in the location effects between Depth5 and Depth30 ($\rho_{16}=0.074$). 
+
+We can see this quite clearly in the plot of the random effects below. 
+
+```{r message=FALSE, fig.dim=c(8,8)}
+ranef(qm_rf_us)$cond$location |> 
+  GGally::ggpairs() +
+  ggtitle("Location random effects by depth stratum")
+
+```
+
+### Plotting predictions and residuals of model `qm_rf_us`
+
+Let's make the usual plot.
+
+```{r, fig.dim=c(8,8)}
+gw + geom_point() + 
+  geom_line(aes(y=predict(qm_rf_us)), col=2)  +
+  ggtitle("Predictions by location")
+```
+
+This is a little bit cheating, because we are essentially including the error term in our predictions. The error term for this model *is* the random effects, and the random effects are used in the predictions. 
+
+Here's a plot of the profiles showing the population-level fit in black.
+
+```{r fig.dim=c(8,5)}
+
+preds_qm_rf_us <- predict(qm_rf_us, re.form = NA, se.fit = TRUE) |> 
+  as_tibble() |> 
+  mutate(depth = temp$depth) |> 
+  distinct(depth, .keep_all= TRUE) |> 
+  mutate(conf.low=fit-2*se.fit,
+         conf.high=fit+2*se.fit)
+
+gt + 
+  geom_line(aes(col=location), alpha=.6) + 
+  geom_point(aes(col=location), alpha = .6) +
+  geom_ribbon(aes(x=depth, ymin=conf.low, ymax=conf.high), inherit.aes = F,
+    data=preds_qm_rf_us, alpha=.6) +
+  geom_line(aes(y=fit), lwd=1.2, data=preds_qm_rf_us) +
+  ggtitle("Predictions")
+```
+
+
+Let's see the residual plot, with updated error structure. The residuals for this model are really just the depth-specific location effects. All three of the plots below will show the location effects for each depth, after accounting for the population-level polynomial model of the decline in temperature with depth. 
+
+First we need to dig out the random effects for each location at each depth (`loc_effects`), and the standard deviations of the location effects for each depth (`depth_sd`).
+
+```{r, fig.dim=c(8,8)}
+# Extract location effects for each depth
+loc_effects <- ranef(qm_rf_us)$cond$location |> 
+  data.frame() |> 
+  rownames_to_column("location") |> mutate(location = as_factor(location)) |> 
+  pivot_longer(factor.depth.5:factor.depth.30, names_to="Depth", values_to="Effects") |> 
+  mutate(depth = substring(Depth,14,16) |> as.numeric())
+
+# Extract estimates of SD of location effects for each depth
+depth_sd <- confint(qm_rf_us) |> 
+  data.frame() |> 
+  rownames_to_column("Parameter") |> 
+  dplyr::filter(str_detect(Parameter, "Std")) |> 
+  mutate(depth = readr::parse_number(substring(Parameter,22,24))) |> 
+  transmute(depth, SD_location = Estimate)
+```
+
+And now we can plot them.
+
+```{r, fig.dim=c(8,8)}
+# Add them to temp and plot
 temp |> 
-  mutate(fitted_sd = predict(qm_rq_vtemp, type = "disp"),
-         observed_residuals = residuals(qm_rq)) |> 
-  group_by(location) |> 
-  summarise(`explicitly modelled` = fitted_sd,
-            `observed from previous model` = sd(observed_residuals)) |> 
-  pivot_longer(cols=c(`explicitly modelled`, `observed from previous model`), names_to="Source", values_to="SD of residuals") |> unique() |> 
-  ggplot() + aes(x=location,y=`SD of residuals`,col=Source) + geom_point() +
-  theme(legend.position = "top")
-  
-```
-
-That's a good relationship. 
-
-### Plotting the predictions and residuals from model `qm_rq_vtemp`
-
-```{r, fig.dim=c(8,8)}
-gw + geom_point() + geom_line(aes(y=predict(qm_rq_vtemp)), col=2) 
-```
-
-Let's see the residuals *vs* with a band showing where they're expected to be (well, 95% of them) given the model of the dispersion. 
-
-```{r, fig.dim=c(8,8)}
-gw + 
+  right_join(depth_sd, by="depth") |> 
+  right_join(loc_effects, by=c("location","depth")) |> 
+  ggplot() +
+  aes(x=depth) + facet_wrap(~location) +
+  geom_ribbon(aes(ymin = - 2 * SD_location, 
+                  ymax = + 2 * SD_location), 
+              fill = 4, alpha = .4) +
   geom_hline(yintercept = 0) +
-  geom_ribbon(aes(ymin = ymin, ymax = ymax), alpha=.4, fill=2,
-              data = temp |> 
-                mutate(resid_disp = predict(qm_rq_vtemp, type = "disp")) |> 
-                mutate(ymin = 0 - 2*resid_disp,
-                       ymax = 0 + 2*resid_disp)) +
-  geom_point(aes(y=residuals(qm_rq_vtemp)))
+  geom_point(aes(y=Effects)) +
+  ggtitle("Location effects vs depth by location")
 ```
 
-That looks pretty good. The modelled standard deviations of the residuals is higher in the locations where it is needed.
+We can see that the SD of the location effects (represented by the blue bands) declines with depth - there's less variation among locations at deeper depths. Most of the effects are within the bands. Some locations have all their points outside the bands, but that's OK, because we expect the within-location effects to be correlated across depths. 
+
+```{r}
+temp |> 
+  right_join(depth_sd, by="depth") |> 
+  right_join(loc_effects, by=c("location","depth")) |> 
+  ggplot() +
+  aes(x=depth, y = Effects) + 
+  geom_hline(yintercept = 0) +
+  geom_ribbon(aes(ymin = - 2 * SD_location, 
+                  ymax = + 2 * SD_location), 
+              alpha = .2) +
+  geom_point(aes(col=location),alpha=.3)  +
+  geom_line(aes(group=location, col=location),alpha=.3)  +
+  geom_boxplot(aes(group=depth), alpha=0) +
+  ggtitle("Location effects by depth, coloured by location") +
+  theme(legend.position="none")
+```
+
+These plots show our model of the variation in temperature among locations across the depths, after accounting for the overall (polynomial) decline in temperature that occurs across all locations. 
+
+- Each set of points and line represent the random effects of a location across the depths. 
+
+- The grey band represents (2 times) the estimated standard deviations of the location effects for each depth. 95% of the effects should be within the grey band. The narrowing reflects the decrease in variance of the location effects with increasing depth. Only a few locations have points outside the band, which is good. It's a 95% interval, and we have 56 locations, so we expect about three or so to be outside the band. 
+
+- The effects of each location look quit consistent across the depths. This reflects the positive correlations in the variance-covariance structure of the location effects.
+
+Is this model better than the previous location-adjusted polynomial one?
+
+```{r}
+anova(qm_rq,qm_rf_us)
+```
+
+Clearly, yes.
+
+This model has a lot more parameters though, with all those individual variances and covariances. Let's try a slightly simpler version.
+
+
+## Model 2.2: Fixed polynomial model of depth and depth-specific random effects of locations with **Toeplitz correlation matrix** (`qm_rf_toep`)
+
+### Mathematical description of model `qm_rf_toep`
+
+This model is the same as `qm_rf_us`, except it has a slightly different covariance structure (The variance structure is the same - each depth stratum gets its own variance of location effects.)
+
+It's easier to express the change in terms of a matrix of correlations $\rho_{ij}$ between depth strata $j$ and $k$ for $j\neq k$, rather than covariances, as per below.
+
+$$
+\begin{bmatrix}
+  \rho_{12} \\
+  \rho_{13} & \rho_{23} \\
+  \rho_{14} & \rho_{24} &  \rho_{34}  \\
+  \rho_{15} & \rho_{25} &  \rho_{35} &  \rho_{45}\\
+  \rho_{16} & \rho_{26} &  \rho_{36} &  \rho_{46} &  \rho_{56}  \\  
+\end{bmatrix}
+$$
+
+**The Toeplitz condition is that the correlations between pairs of depths that are the same distance apart are identical.**
+
+
+$$
+\rho_{12} = \rho_{23} = \rho_{34} = \rho_{45} = \rho_{56} \\
+\rho_{13} = \rho_{24} = \rho_{35} = \rho_{46} \\
+\rho_{14} = \rho_{25} = \rho_{36}  \\
+\rho_{15} = \rho_{26} \\
+\rho_{16}
+$$
+
+- The correlations of location effects between adjacent depth strata are identical. That is, $\rho_{12}$, the correlation of location effects between depths 5 and 10, is equal to $\rho_{23}$, the correlation of location effects between depths 10 and 15, is equal to ..., is equal to $\rho_{56}$, the correlation of location effects between depths 25 and 30. 
+
+- The correlations of location effects between depth strata two steps apart are also identical. That is, $\rho_{13}$ equals $\rho_{24}$ equals ... equals $\rho_{46}$.
+
+    ...
+
+- The correlations of location effects between depth strata four steps apart are also identical. That is, $\rho_{15}$ equals $\rho_{26}$.
+
+- The correlation between depth strata 1 and 6 ($\rho_{16}$) is unconstrained.
+
+
+The Toeplitz structure is slightly more restrictive, but it requires fewer parameters. We only need 5 unique correlation parameters, half the number required by the unstructured-correlation model `qm_rf_us`.
+
+### Fitting model `qm_rf_toep`
+
+```{r eval=TRUE, warning=FALSE, include=TRUE}
+qm_rf_toep <- glmmTMB(temperature ~ poly(depth,2) + 
+                         toep(0 + factor(depth) | location),
+                         dispformula = ~ 0,
+                         data = temp)
+```
+
+
+```{r eval=TRUE, warning=FALSE, include=TRUE}
+# fitting again with factor(depth) pre-prepared because the output of summary() is nicer
+glmmTMB(temperature ~ poly(depth,2) + 
+                          toep(0 + Depth | location),
+                          dispformula = ~ 0,
+                    data = temp |> mutate(Depth = as_factor(depth))) |> 
+  summary()
+```
+
+See how the correlations are identical along the diagonal bands? 
+
+Let's see if the Toeplitz structure is a better fit than the unstructured structure.
+
+```{r}
+anova(qm_rf_us, qm_rf_toep)
+```
+In the unstructured-correlation model `qm_rf_us`, we saw that the between-depth correlations in location effects were quite strongly related to the distances between depths. So, we tried to put that pattern into model `qm_rf_toep`. However, the unstructured model is clearly a better fit to the data. 
+
 
 # Summary
 
-This has largely been process of starting with relatively simple models, looking at the fits and residuals, identifying patterns in the residuals, and adding terms to the next model to try to move those patterns from the residuals to the model. In order to fully trust a the inferences or predictions of a model, there needs to be no or negligible patterns apparent in the residuals.
+This has largely been process of starting with relatively simple models, looking at the fits and residuals, identifying patterns in the residuals, and adding terms to the next model to try to move those patterns from the residuals to the model. In order to fully trust a the inferences or predictions of a model, there needs to be no or negligible patterns in the residuals.
 
-Let's do a final comparison of the models. 
+Let's do a final comparison of all the models. 
 
 ```{r}
-anova(lm_ri, qm_ri, qm_ris, qm_rq, qm_rq_vtemp)
+anova(lm_ri, qm_ri, qm_ris, qm_rq, qm_rf_toep, qm_rf_us) 
 ```
 
-By the AIC and likelihood ratio tests, the most complicated model was by far the best fit to the data.
+The first four models, `lm_ri` to `qm_rq`, had linear or polynomial fits of temperature to depth at the population-level. The random effects of location were essentially adjustments to the two or three coefficients of the population-level model according to the trajectory of temperature with depth within each location.
 
-A word of caution. Our final model was a little out of the ordinary. It is not normal, and not always appropriate, to fit a model to the residual variance based on values of the response variable. In fact, if you wanted to use this model for predicting temperatures at new locations, you wouldn't have the mean temperatures per location, so you wouldn't be able to use this model because it uses the mean temperatures as input. Perhaps it would be more useful to use the temperature at depth = 0, which is presumably easier to measure.
+The final two models, `qm_rf_us` and `qm_rf_toep`, took a different approach to the random effects of location. Like all the `qm_` models, they were based on a population-level polynomial of temperature with depth. For the random part of the model, the random effects were not used to adjust the slope coefficients for depth. Instead, depth was treated as a categorical factor, and the random location effects were allowed to be *different but correlated* among the depth categories, and to have different variances among depths. 
 
-I did try to model the residual variance depend on the *fitted* values of the temperature from the model but I couldn't get the model to converge. The `varPower()` variance structure with the `nlme::lme()` is supposed to do this, apparently.
+With the two `qm_rf` models, we used different structures for the matrix of between-depth correlations in the location effects. The model `qm_rf_us` fit an unstructured correlation matrix - the correlations of the location effects for each pair of depth categories had no structure imposed, and were estimated freely, irrespective of the order of the depths. In contrast, the Toeplitz correlation structure (`qm_rf_toep`) fixed the correlations of the location effects to be identical for pairs of depths that were the same distance apart. 
 
-In general, once a model gets this complicated (actually much before!), I tend to favour Bayesian approaches to mixed models due to its flexibility and ease of interpretation. The Bayesian approach is quite technical though, and it is beyond the scope of this course.
+By the AIC and likelihood ratio tests, the best model, by far, was the most complicated one: `qm_rf_us`. 
+
+In general, once the models get this complicated (actually much before!), I tend to favour Bayesian approaches to mixed models due to their flexibility and ease of interpretation. The Bayesian approach is quite technical though, and it is beyond the scope of this course.
+
+What have we learned? 
+
+Trivial findings:
+
+1. Temperature of the soil declines with depth. This relationship is not strictly linear; the decline slows down at deeper depths. 
+
+2. Temperature profiles vary among locations.
+
+What is the best way to conceive of this system?
+
+The two conceptual models we explored with these data can be described as follows:
+
+1. On average, across locations, there's a polynomial relationship between temperature and depth. This relationship has three coefficients: an intercept, a slope for the linear (straight line) effect, and a slope for the quadratic (curvy) effect. These coefficients vary randomly among locations. 
+
+2. On average, across locations, there's a polynomial relationship between temperature and depth with the same three coefficients. Around this relationship, temperatures vary among locations, more so at shallower than deeper depths. Locations that are warmer (or cooler) at a particular depth tend to also be warmer (or cooler) at other, especially similar, depths.  
+
+Conceptual model 1 is represented by the statistical model `qm_rq`. Conceptual model 2 is represented by the statistical models `qm_rf_us` and `qm_rf_toep`. 
+
+Given that the much better fit of statistical models `qm_rf_us` and `qm_rf_toep`, the second of the above conceptual models is likely a better description of how soil temperature declines with depth at different locations.
