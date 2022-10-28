@@ -1,0 +1,125 @@
+---
+title: "Fixing ggplots can't find stuff"
+author: "Adam Smith"
+date: "2022-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+library(tidyverse)
+```
+
+### Motivation
+
+Ever had an error message "`Error in FUN(X[[i]], ...) : object 'x' not found`" when trying to make a ggplot? 
+
+Usually, it means that `x` has been given as an 'aesthetic' for the plot but there is no object, or column of the data object, with the name `x`. 
+
+This is a common pitfall when using multiple geoms, especially when calling different data objects. Here's what you need to know.
+
+### What are aesthetics?
+
+Every geom (`geom_line`, `geom_point`, etc.) uses a specific set of 'aesthetics' that determine which variables of a data object it will use, and how. This includes the names of variables that determine the x and y coordinates, groups, colour, etc. Aesthetics are specified inside the `aes()` function. 
+
+### Where do aesthetics go?
+
+Where you put the aesthetics is quite flexible. These should all work the same:
+
+```{r}
+ggplot(dat, aes(x=x, y=y, group=grp, colour=grp) ) +  geom_line()
+ggplot(dat) +  aes(x=x, y=y, group=grp, colour=grp) + geom_line()
+ggplot(dat) + geom_line(aes(x=x, y=y, group=grp, colour=grp))
+ggplot() + geom_line(aes(x=x, y=y, group=grp, colour=grp), data = dat)
+```
+
+As you can see, data and a set of aesthetics can be specified inside the `ggplot()` function or within the `geom_()` function. Also, aesthetics can also be specified in its own additive function. 
+
+### Aesthetics specified upstream are passed to geoms downstream
+
+Every geom has compulsory and optional aesthetics. For example, `geom_line` needs an `x` and a `y`, and `geom_ribbon` needs `x`, `ymin`, and `ymax`, but they can both optionally take `colour` and many other aesthetics. 
+
+***Geoms look upstream for the names of aesthetics it can use, and then look for those aesthetics in the data provided.***
+
+You can add geoms from different datasets like this:
+
+```{r}
+ggplot(dat, aes(x=x, y=y, group=grp, colour=grp) ) +  
+  geom_line() +
+  geom_line(data = dat2)
+```
+
+This requires `dat2` to have columns labelled `x`, `y`, and `grp` because these aesthetics used by `geom_line` and they were specified upstream.
+
+
+### What happens when geom can't find an aesthetic?
+
+A problem occurs when a geom looks for an aesthetic that is not in the data. This applies to aesthetics specified upstream or within the `geom_()` function.
+
+If an aesthetic is missing, you will get an error saying it cannot be found (something like `Error in FUN(X[[i]], ...) : object 'grp' not found`).
+
+Using the example above, this problem would occur if `dat2` didn't have columns named `x`, `y`, and `grp`. 
+
+### Solutions
+
+Let's say `dat2` had the columns `different_x`, `different_y`, and `different_grp` instead of `x`, `y`, and `grp`.
+
+Here are some options for dealing with this problem.
+
+**1. Edit `dat2` to have the necessary columns**
+
+For example, you could rename the columns in `dat2` to match the aesthetics:
+
+```{r}
+ggplot(dat, aes(x=x, y=y, group=grp, colour=grp) ) +  
+  geom_point() +
+  geom_line(data = dat2 |> select(x=different_x, 
+                                  y=different_y,
+                                  grp=different_grp) )
+```
+
+**2. Tell the geom alternative column names to use for aesthetics**
+
+For example:
+
+```{r}
+ggplot(dat) + 
+ aes(x=x, y=y, group=grp, colour=grp) +
+ geom_point() +
+ geom_line(aes(x=different_x, y=different_y, 
+                group=different_grp,
+                colour=different_grp))
+```
+
+**3. Tell the geom not to use an optional aesthetic**
+
+For example, if you wanted to use `grp` for the `colour` and `group` aesthetics in `geom_point` but not`geom_line`:
+
+```{r}
+ggplot(dat) + 
+ aes(x=x, y=y, group=grp, colour=grp) +
+ geom_line() +
+ geom_point(aes(x=different_x, 
+                y=different_y, 
+                colour= NULL, 
+                group=NULL))
+
+```
+
+
+**4. Just forget about all those upstream aesthetics for a moment, will ya?**
+
+If you don't want to use any of the upstream `aes()` stuff in a particular geom, you can add the argument `inherit.aes = FALSE`. This should achieve the same result as 3 above.
+
+```{r}
+ggplot(dat) + 
+ aes(x=x, y=y, group=grp, colour=grp) +
+ geom_line() +
+ geom_point(aes(x=different_x, y=different_y), 
+            inherit.aes = FALSE)
+```
+
+In this case, you'd have to specify *all* the desired aesthetics within the `geom_point` function. 
+
+Hope that comes in handy to someone!
+
