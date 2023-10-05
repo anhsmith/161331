@@ -16,7 +16,7 @@ Note: you can download the .Rmd file using the 'code' button on the top right.
 
 ```{r setup_rmd, include=F}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "../data")
+# knitr::opts_knit$set(root.dir = "../data")
 knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
 ```
 
@@ -265,15 +265,32 @@ We estimate the average pain score at 3 PM to be 42.6, increasing by 2 to 44.6 a
 We can extract these predictions with confidence intervals like so.
 
 ```{r}
-predf <- predictions(lmm1, by="Time")
+# refit the model with lme4 to avoid issues with 
+# glmmTMB not playing with marginaleffefcts
+lmer1 <- lme4::lmer(Pain ~ Time + (1 | Subject), data=dt)
+
+predf <- predictions(lmer1, by="Time")
 ```
+
 And plot the marginal means with confidence intervals (after 'removing' subject effects) in black as follows. 
 
 ```{r}
 gline +
-  geom_point(data =predf, aes(x=Time, y=predicted), inherit.aes = F, size=4) +
-  geom_line(data =predf, aes(x=as.numeric(Time), y=predicted), inherit.aes = F) +
-  geom_errorbar(data =predf, aes(x=Time, ymin=conf.low, ymax=conf.high), width=0, inherit.aes = F) 
+  geom_point(
+    data = predf, 
+    aes(x=Time, y=estimate), inherit.aes = F, size=4
+    ) +
+  geom_line(
+    data =predf, 
+    aes(x=as.numeric(Time), y=estimate), 
+    inherit.aes = F
+    ) +
+  geom_errorbar(
+    data =predf, 
+    aes(x=Time, ymin=conf.low, ymax=conf.high), 
+    width=0, 
+    inherit.aes = F
+    ) 
 ```
 
 It looks like the average pain increased slightly more from 5 and 7 PM then from 5 and 3 PM. Although, with such a small dataset, this may be driven solely by Subject 4, who seemed to be feeling unusually good at 5 PM.
@@ -291,11 +308,11 @@ These represent the differences between the estimated pain scores of the subject
 The `marginaleffects` package provides a lot more ways to extract estimates from our models, with confidence intervals.
 
 ```{r}
-predr <- predictions(lmm1, by="Subject") |> 
+predr <- predictions(lmer1, by="Subject") |> 
   # subtract the mean to get marginal effects
-  mutate(pred.mar = predicted - mean(predicted),
-         conf.low.mar = conf.low - mean(predicted),
-         conf.high.mar = conf.high - mean(predicted))
+  mutate(pred.mar = estimate - mean(estimate),
+         conf.low.mar = conf.low - mean(estimate),
+         conf.high.mar = conf.high - mean(estimate))
 predr
 ```
 
@@ -306,7 +323,9 @@ predr |>
   ggplot() + 
   aes(x=Subject,y=pred.mar,col=Subject) +
   geom_point() +
-  geom_errorbar(aes(ymin=conf.low.mar,ymax=conf.high.mar),width=0) +
+  geom_errorbar(aes(ymin=conf.low.mar,
+                    ymax=conf.high.mar),
+                width=0) +
   ylab("Subject effects") +
   theme(legend.position="none") + coord_flip()
 ```
@@ -315,20 +334,40 @@ predr |>
 And now let's plot the whole lot together...
 
 ```{r}
-predall <- predictions(lmm1)
+predall <- predictions(lmer1)
 predall
 
 ```
 
 ```{r}
 ggplot(predall) +
-  aes(x = Time, y = predicted, col=Subject, group=Subject) +
-  geom_ribbon(aes(ymin=conf.low, ymax=conf.high, col=NULL, fill = Subject), width=0, alpha=.3) +
+  aes(x = Time, 
+      y = estimate, 
+      col=Subject, 
+      group=Subject
+      ) +
+  geom_ribbon(
+    aes(ymin=conf.low, 
+        ymax=conf.high, 
+        col=NULL,
+        fill = Subject), 
+    width=0, alpha=.3
+    ) +
   geom_line() + 
-  geom_point(data=dt, aes(y=Pain)) +
-  geom_point(data =predf, aes(x=Time, y=predicted), inherit.aes = F, size=4) +
-  geom_line(data =predf, aes(x=as.numeric(Time), y=predicted), inherit.aes = F) +
-  geom_errorbar(data =predf, aes(x=Time, ymin=conf.low, ymax=conf.high), width=0, inherit.aes = F)
+  geom_point(data=dt, 
+             aes(y=Pain)
+             ) +
+  geom_point(data =predf, 
+             aes(x=Time, y=estimate), 
+             inherit.aes = F, size=4
+             ) +
+  geom_line(data =predf, 
+            aes(x=as.numeric(Time), y=estimate), 
+            inherit.aes = F
+            ) +
+  geom_errorbar(data =predf,
+                aes(x=Time, ymin=conf.low, ymax=conf.high),
+                width=0, inherit.aes = F)
  
 ```
 
@@ -401,11 +440,17 @@ ranef(mixreg1)[[1]]$Subject |> cor()
 Here are the lines that are being fit to each subject.
 
 ```{r, warning=F}
-plot_cap(mixreg1, condition = c("Hour", "Subject")) +
-  geom_point(data=dt, aes(x=Hour,y=Pain,col=Subject))
+lmer_mixreg1 <- lme4::lmer(Pain ~ Hour + (Hour | Subject),
+                            data = dt)
+
+plot_cap(lmer_mixreg1, 
+         condition = c("Hour", "Subject")
+         ) +
+  geom_point(data=dt, 
+             aes(x=Hour,y=Pain,col=Subject))
 ```
 
-I would not trust this model! It hasn't converged properly. It looks like a terrible fit to subject 4. And the complete correlation between intercepts and slopes makes it look pretty weird.
+I would not trust this model! It didn't converged properly, either with `glmmTMB` or `lmer`. It looks like a terrible fit to subject 4. And the complete correlation between intercepts and slopes makes it look pretty weird.
 
 The term `(Hour | Subject)` in the formula automatically fits a random intercept and a random effect on the slope for each subject. It is equivalent to `(1 + Hour | Subject)`. When two effects (here, intercept and slope) are specified in the same term like this, the model automatically fits a correlation.
 
@@ -443,27 +488,48 @@ The term `(1 | Subject)` fits a random intercept but no slope effect.
 So, let's put these effects into the model separately.  
 
 ```{r}
-mixreg2 <- glmmTMB(Pain ~ Hour + (1 | Subject) + (0 + Hour | Subject), data = dt)
+mixreg2 <- glmmTMB(
+  Pain ~ Hour + (1 | Subject) + (0 + Hour | Subject), 
+  data = dt)
+
 summary(mixreg2)
 ```
 
 The correlation parameter has now been removed and the model, and it converged fine. The `df.resid` has increased from 9 to 10. And we have a test for the population-level slope of `Hour`, and it is highly significant with a p-value of 0.0003. 
 
 ```{r}
-predf_mixreg2 <- predictions(mixreg2, by="Hour")
-predf_mixreg2 |> summary()
+lmer_mixreg2 <- lme4::lmer(
+  Pain ~ Hour + (1 | Subject) + (0 + Hour | Subject), 
+  data = dt)
+
+lmer_predf_mixreg2 <- predictions(lmer_mixreg2, by="Hour")
+lmer_predf_mixreg2 |> summary()
 
 ```
 
 Now let's plot the lines fit per subject, adding the raw data and population-level predictions. 
 
 ```{r}
-g1 <- plot_cap(mixreg2, condition = c("Hour", "Subject")) +
+g1 <- plot_cap(
+    lmer_mixreg2, 
+    condition = c("Hour", "Subject")
+    ) +
   # add raw data
-  geom_point(data=dt, aes(x=Hour,y=Pain,col=Subject)) +
+  geom_point(
+    data = dt, 
+    aes(x=Hour,y=Pain,col=Subject)
+    ) +
   # add overall mean
-  geom_ribbon(data=predf_mixreg2, aes(x=Hour,ymin=conf.low,ymax=conf.high), alpha=.2) +
-  geom_line(data=predf_mixreg2, aes(x=Hour, y=predicted), size=1) 
+  geom_ribbon(
+    data = lmer_predf_mixreg2,
+    aes(x=Hour,ymin=conf.low,ymax=conf.high), 
+    alpha=.2
+    ) +
+  geom_line(
+    data = lmer_predf_mixreg2, 
+    aes(x=Hour, y=estimate), 
+    size=1)
+
 g1
 ```
 
@@ -471,12 +537,14 @@ We can see that the model has fit slightly different slopes (and intercepts) to 
 
 ```{r}
 ranef(mixreg2)
+
+ranef(lmer_mixreg2)
 ```
 
 Or use the `marginaleffects()` function to extract the subject-specific slopes ($\beta + b_i$).
 
 ```{r}
-marginaleffects(mixreg2, by="Subject") |>  summary()
+marginaleffects(lmer_mixreg2, by="Subject") |>  summary()
 ```
 
 The fitted slopes for each subject are in the column headed 'Effect'. The estimated slope for subject 1 was 2.09 (with a 95% confidence interval of 1.66, 2.52), subject 2 was 1.04 (0.65, 1.43), etc. This can be interpreted as the pain increasing by 2.09 units per hour for subject 1, and 1.04 units per hour for subject 2, etc. 
@@ -488,16 +556,16 @@ We can look at the residuals by `Time` and/or `Subject`.
 ```{r  out.width="100%"}
 
 resid_by_hour <- 
-  predictions(mixreg2) |> 
-  mutate(Residuals = Pain - predicted) |> 
+  predictions(lmer_mixreg2) |> 
+  mutate(Residuals = Pain - estimate) |> 
   ggplot() +
   geom_hline(yintercept=0) +
   aes(x=Hour,y=Residuals,col=Subject) +
   geom_point() 
 
 resid_by_subject <- 
-  predictions(mixreg2) |> 
-  mutate(Residuals = Pain - predicted,
+  predictions(lmer_mixreg2) |> 
+  mutate(Residuals = Pain - estimate,
          Hour = as_factor(Hour)) |> 
   ggplot() +
   geom_hline(yintercept=0) +
@@ -543,22 +611,86 @@ First, we'll need to fit a linear fixed-effects model, and then we'll need to ex
 ```{r}
 # fit a fixed-effects linear model with interaction
 flm <- lm(Pain ~ Hour * Subject, data = dt)
+```
 
+
+```{r}
+marginaleffects(
+    flm,
+    variable="Hour",
+    by="Subject"
+    ) #|> 
+  # transmute(
+  #     Subject, 
+  #     Value="contrast", 
+  #     Parameter="Slope", 
+  #     Model="Fixed"
+  #     )
+
+marginaleffects(
+    lmer_mixreg2,
+    variable="Hour",
+    by="Subject"
+    )
+```
+
+
+```{r}
 # Extract intercepts and slopes from fixed and mixed models
 pars_fix_rand <- bind_rows(
-  marginaleffects(flm,variable="Hour",by="Subject") |> 
-    transmute(Subject, Value=dydx, Parameter="Slope", Model="Fixed") ,
-  marginaleffects(mixreg2,variable="Hour",by="Subject") |> 
-    transmute(Subject, Value=dydx, Parameter="Slope", Model="Random"),
-  predictions(flm) |> filter(Hour == 0) |> 
-    transmute(Subject,Value=predicted,Parameter="Intercept",Model="Fixed"),
-  predictions(mixreg2) |> filter(Hour == 0) |> 
-    transmute(Subject,Value=predicted,Parameter="Intercept",Model="Random"))
+  
+  marginaleffects(
+    flm,
+    variable="Hour",
+    by="Subject"
+    ) |> 
+    transmute(
+      Subject, 
+      Value="contrast", 
+      Parameter="Slope", 
+      Model="Fixed"
+      ),
+  
+  marginaleffects(
+    lmer_mixreg2,
+    variable="Hour",
+    by="Subject"
+    ) |> 
+    transmute(
+      Subject, 
+      Value=dydx, 
+      Parameter="Slope", 
+      Model="Random"
+      ),
+  
+  predictions(flm) |> 
+    filter(Hour == 0) |> 
+    transmute(
+      Subject,
+      Value=estimate,
+      Parameter="Intercept",
+      Model="Fixed"
+      ),
+  
+  predictions(lmer_mixreg2) |> 
+    filter(Hour == 0) |> 
+    transmute(
+      Subject,
+      Value=estimate,
+      Parameter="Intercept",
+      Model="Random")
+  )
 
 # Plot them
 ggplot(pars_fix_rand) +
-  aes(x=Model,y=Value,col=Subject,group=Subject) +
-  geom_point() + geom_line() +
+  aes(
+    x=Model,
+    y=Value,
+    col=Subject,
+    group=Subject
+    ) +
+  geom_point() + 
+  geom_line() +
   facet_wrap(.~Parameter, scales="free") +
   ggtitle("Shrinkage of Subject effects on intercept and slope parameters",
     subtitle = "Comparison of estimates between fixed-effects and mixed-effects models")

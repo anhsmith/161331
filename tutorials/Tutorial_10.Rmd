@@ -20,9 +20,8 @@ output:
 
 ```{r setup_rmd, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "../data")
+# knitr::opts_knit$set(root.dir = "../data")
 knitr::opts_chunk$set(fig.dim=c(5,3.5), out.width="70%", fig.retina=2)
-theme_set(theme_bw())
 ```
 
 Note: you can download the .Rmd file for this tutorial using the 'Code' button on the top right of this page.
@@ -36,6 +35,7 @@ library(lme4)
 library(asbio)
 library(glmmTMB)
 library(marginaleffects)
+theme_set(theme_bw())
 ```
 
 
@@ -50,7 +50,8 @@ data(potato)
 # If you can't install the 'asbio' package, you can download "potato.txt" from STREAM
 # and load it with `potato <- read.table("potato.txt")`
 
-# reorder the factor Variety according to the mean of Yield
+# reorder the factor Variety according to the mean of Yield 
+# (this makes our plots look nicer)
 potato <- potato %>% mutate(Variety = fct_reorder(Variety, Yield, mean))
 
 str(potato)
@@ -225,7 +226,6 @@ summary(glmmTMB1_potato)
 
 Now, the estimated variance component for `Variety:Fert` isn't exactly zero, but it is very small. Should we remove it or keep it in the model? 
 
-
 ## Inference: testing hypotheses and model selection
 
 It is important to distinguish between these two procedures (testing hypotheses and model selection) because the goals and methods are different.
@@ -255,7 +255,7 @@ glmmTMB2_potato <- update(glmmTMB1_potato, . ~ . - (1|Variety:Fert))
 summary(glmmTMB2_potato)
 ```
 
-Now we'll use the `anova` function to apply a Likelihood Ratio Test. For two models, one nested in the other, the LRT tests whether the more complex model has significantly better fit to the data in terms of the difference in log-likelihood, taking into account the number of extra degrees of freedom it uses.. 
+Now we'll use the `anova` function to apply a Likelihood Ratio Test. For two models, one nested in the other, the LRT tests whether the more complex model has significantly better fit to the data in terms of the difference in log-likelihood, taking into account the number of extra degrees of freedom it uses.
 
 ```{r}
 anova(glmmTMB2_potato, glmmTMB1_potato)
@@ -350,7 +350,10 @@ These effects are estimated irrespective of the two random terms. They are not e
 
 However, that isn't to say that the tests of the effects of fertiliser do take the random terms into account. If we fit a model without the random effect of variety, we wouldn't get the same result. 
 
-Let's see what happens to the tests when we omit variety from the model altogether. 
+Let's see what happens to the tests when we omit `Variety` from the model altogether. 
+
+
+
 
 ```{r}
 glmmTMB(Yield ~ Fert, data = potato) %>% summary
@@ -360,105 +363,310 @@ The estimates of the effects of fertiliser are the same if we remove the random 
 
 A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.277; without variety, it is 0.651. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
 
+### Coefficients as means
+
+We can easily change the way the model is parameterised. To fit a model where the coefficients are the means of each of the three fertilisers (rather than setting one coefficient as the intercept and the other two as differences to the intercept), we can use the following code:
+
+```{r}
+glmmTMB2_0_potato <- glmmTMB(Yield ~ 0 + Fert + (1 | Variety), data = potato) 
+
+summary(glmmTMB2_0_potato)
+```
+
+The `0 +` in the forumula removes the intercept. Instead, the coefficients are simply the means for each `Fert` group. This parameterisation makes it easier for estimating and plotting means, but it is not so useful for testing hypotheses about differences among the fertiliser levels. The p-values now just test whether each mean is different from zero -- not a very useful test!
+
 
 ### Estimating and plotting means
 
-We can use the handy package `marginaleffects` to estimate different means of interest. See https://vincentarelbundock.github.io/marginaleffects/index.html for more details. 
+It is always useful to accompany a formal analysis with tables and plots of various quantities predicted by the model. For example, we might wish to show the average yield for each type of fertiliser, averaged across the varieties. As scientists, we should add some intervals around those average to indicate our uncertainty in these quantities. But how do we get those intervals?
 
-First, we'll calculate the estimates of marginal means of each fertiliser treatment, excluding, or averaging over, the random effects. 
+The answer to this question is not as straightforward as you might think. There are a few different types of intervals we could show, due to having the random effect of variety in the model.
 
+There are lots of packages out there for calculating different types of predictions, including `emmeans`, `marginalmeans`, and `ggeffects`. 
 
-```{r}
-means_fert <- marginalmeans(glmmTMB2_potato, variables = "Fert")
-means_fert
-```
+#### Plotting confidence intervals for a simple model
 
-This gives estimates for the mean of each level the 'marginalmean' column, with the 95% confidence intervals for the means given by the 'conf.low' and 'conf.high' columns. We can ignore the  'p.value' column, because it refers to tests of the hypothesis that the marginal means are exactly zero, which is a little silly. 
-
-Now let's plot these means. 
+Let's start by getting estimates of mean yields for the three fertilisers, based on a simple model of `Yield ~ Fertiliser`, ignoring varieties. We can use the good old `predict()` function.
 
 ```{r}
-means_fert %>%
-  ggplot() +
-  aes(x=value, y=marginalmean) +
-  geom_point(size=5) +
-  geom_errorbar(aes(x=value, ymin=conf.low, ymax=conf.high), width=0) +
-  geom_jitter(aes(x=Fert, y=Yield, col=Fert),
-             data=potato, 
-             width=.2, alpha=.4 ) +
-  xlab("Fertiliser") + ylab("Yield") +
-  ggtitle("Estimated marginal means by fertiliser type")
-             
+m1 <- lm(Yield ~ Fert, data = potato)
+
+newdat <- data.frame(Fert = c("B","Cl","S"))
+
+m1_p_ci <- predict(m1,
+                   newdata = newdat,
+                   interval = "confidence")
+
+tab_p_ci <- data.frame(newdat, m1_p_ci)
+
+tab_p_ci
 ```
 
-Note that these confidence intervals are not the same as what we would get if we just calculated them separately from the yields in each fertiliser group, ignoring varieties. Our confidence intervals have been adjusted for differences among varieties. This mopped up some of the noise in the data, thereby reducing the uncertainty in our estimates of the fertiliser means.
+The column `fit` gives the estimated mean yield for each of the three fertilisers, and the columns `lwr` and `upr` are the lower and upper bounds of the 95% confidence interval for the means, respectively.
 
-Here are the more naive confidence intervals for comparison. 
+We can plot these estimates and intervals.
 
 ```{r}
-potato %>%
-  group_by(Fert) %>%
-  summarise(mean = mean(Yield),
-            conf.low = mean(Yield) - 1.96*sd(Yield)/sqrt(n()),
-            conf.high = mean(Yield) + 1.96*sd(Yield)/sqrt(n()))
-```
-The confidence intervals are quite a lot wider. Believe it or not, it is quite common to see these sorts of 'naive' intervals on plots. If you've gone to the trouble of fitting a fancy model, why not use it to estimate the means?!
+p <- tab_p_ci |> 
+  ggplot() + 
+  aes(x = Fert, y = fit, ymin = lwr, ymax = upr) +
+  geom_pointrange()
 
-Now let's extract from our model the estimates of mean yield for each variety, marginalised over the fertiliser types. 
+p
+```
+
+And let's add the data to the plot:
 
 ```{r}
-means_var <- marginalmeans(glmmTMB2_potato, variables = "Variety")
+p + 
+  geom_jitter(data = potato, 
+              aes(x = Fert, y = Yield), 
+              inherit.aes = F,
+              alpha = .3, 
+              width = .2)
+  
 ```
 
-And made the plot.
+We can get the same sort of plot straight from the model itself using the `visreg` package.
 
 ```{r}
-means_var %>%
-  ggplot() +
-  aes(x=value, y=marginalmean) +
-  geom_point(size=2) +
-  geom_errorbar(aes(x=value, ymin=conf.low, ymax=conf.high),
-                width=0) +
-  geom_jitter(aes(x=Variety, y=Yield, col=Variety),
-             data=potato, 
-             width=.2, alpha=.4 ) +
-  xlab("Variety") + ylab("Yield") +
-  ggtitle("Estimated marginal means by variety") +
-  coord_flip() + theme(legend.position = "none")
-             
+visreg::visreg(m1, gg=T)
 ```
 
-We can estimate means of combinations of fertiliser and variety with the function `predictions`.
+
+But we're ignoring something here... *Variety*!
 
 ```{r}
-means_fert_var <- predictions(glmmTMB2_potato, by = c("Fert", "Variety"))
-means_fert_var %>% summary
+p + 
+  geom_jitter(data = potato, 
+              aes(x = Fert, y = Yield, colour = Variety), 
+              inherit.aes = F,
+              alpha = .4, 
+              width = .2)
+  
 ```
 
-And make the plot. 
+#### Plotting confidence intervals for a mixed-effects model
 
-```{r fig.dim=c(8,5), out.width="90%"}
-means_fert_var %>%
-  ggplot() +
-  aes(x=Fert, y=predicted, col = Variety) +
-  # plot data points as little crosses
-  geom_point(aes(y=Yield), pch=4, alpha=.7, 
-             data=potato, position = position_dodge(.8)) +
-  # plot conditional means and error bars for fert and variety combos 
-  geom_point(position = position_dodge(.8)) +
-  geom_errorbar(aes(x=Fert, ymin=conf.low, ymax=conf.high), width=0, 
-               position = position_dodge(.8)) +
-  # plot marginal means and error bars for fert
-  geom_point(aes(x=value, y = marginalmean), inherit.aes = F, 
-             data=means_fert, size=5) +
-  geom_errorbar(aes(x=value, ymin = conf.low, ymax=conf.high), 
-                inherit.aes = F, data=means_fert, width=0, lwd=1.1) +
-  xlab("Fertiliser") + ylab("Yield") + 
-  ggtitle("Marginal means by fertiliser and conditional means by fertiliser and variety")
+When we include *Variety* in the model, we get slightly larger confidence intervals for our estimates of *Fertiliser* means. 
+
+```{r}
+m1_TMB <- glmmTMB(Yield ~ 0 + Fert, data = potato)
+m2_TMB <- glmmTMB(Yield ~ 0 + Fert + (1 | Variety), data = potato)
+
+library(parameters)
+library(see)
+
+m1_m2_compare <- compare_parameters(m1_TMB, m2_TMB) 
+
+m1_m2_compare
+
+plot(m1_m2_compare)
+
+```
+
+This shows that including *Variety* as a random effect in the model as a random effect results in wider confidence intervals around the estimates of the *Fertiliser* means. 
+
+The [`ggeffects`](https://strengejacke.github.io/ggeffects/index.html) library has some useful functions for calculating "marginal effects", taking into account other variables in the model. This isn't such a big deal with a fully balanced factorial design like the potato study, where we have an equal number of data points within each combination of levels of two factors. But it can be very useful for unbalanced designs, or where there is a quantitative predictor in the model. 
+
+##### Marginal means with `ggeffect()`
+
+`ggeffect()` returns *marginal* estimates of means; that is, estimates of means while marginalising over the levels of other factors. 
+
+For example:
+
+```{r}
+library(ggeffects)
+
+ggeffect(m2_TMB)
+```
+You can also make simple plots from a ggeffects object.
+
+```{r}
+ggeffect(m2_TMB) |> plot()
+```
+
+
+These points represent estimates of the average yield for each fertiliser, averaged over all the varieties, with confidence intervals.
+
+##### Conditional means with `ggpredict()`
+
+`ggpredict()` is another function generally used to predict *conditional* effects, based on all combinations of factors, or particular combinations of levels factors. 
+
+Note that, if you want to include the random effects, you have to include the argument `type = "random"`. However, this automatically sets another argument `interval = "prediction"`, which means the intervals include the residual error as well. To get confidence intervals for conditional means (without residual error), including random effects, you must specify `type = "random"` ***and*** `interval = "confidence"`.
+
+Here is the full list of confidence intervals for all combinations of `Fert` and `Variety`.
+
+```{r}
+# All combinations of Fert and Variety
+ggpredict(m2_TMB, 
+          terms = c("Fert", "Variety"), 
+          type = "random",
+          interval = "confidence")
+```
+
+We can also specify particular levels of `Variety`:
+
+```{r}
+# Specific levels of Variety
+ggpredict(m2_TMB, 
+          terms = c("Fert", "Variety [Epicure, Ajax]"), 
+          type = "random",
+          interval = "confidence")
+```
+
+Now let's see what happens when we forget to specify `interval = "confidence"`:
+
+```{r}
+# Specific levels of Variety
+ggpredict(m2_TMB, 
+          terms = c("Fert", "Variety [Epicure, Ajax]"), 
+          type = "random")
+```
+The intervals are much wider! That's because these are 95% *prediction* intervals, which are intervals that are expected to cover all individual observations of `Yield`, as opposed to *confidence* intervals, which are measures of uncertainty about the locations of the actual population means. (If this distinction is not familiar to you, you need to revise your 100-level statistics material.)
+
+We can also specify particular levels of both factors - `Fert` and `Variety`:
+
+```{r}
+# Specific levels of Fert and Variety
+ggpredict(m2_TMB, 
+          terms = c("Fert [B]", "Variety [Epicure, Ajax]"), 
+          type = "random", 
+          interval = "confidence")
+```
+
+Now, look what happens when we forget to specify `type = "random"`, thereby omitting the effects of `Variety`:
+
+```{r}
+# The same, but forgetting to include `type = "random"`
+ggpredict(m2_TMB, 
+          terms = c("Fert [B]", "Variety [Epicure, Ajax, Nithsdale]"))
+
+```
+They're all the same across the varieties! This is because the random effects are not included unless you include the argument `type = "random"`. 
+
+Right, let's make some plots. 
+
+#### Plot of Variety means
+
+We'll start by plotting the averages of Varieties for the middle Fertiliser type (`Cl`).
+
+```{r}
+# estimate means
+var_means <- 
+  ggpredict(
+    m2_TMB, 
+    terms = c("Fert [Cl]", "Variety"),
+    type = "random",
+    interval = "confidence"
+    ) |> 
+  as.data.frame()
+
+# plot
+ggplot() + 
+  
+  # means and intervals
+  geom_pointrange(
+    data = var_means,
+    mapping = aes(
+      x = group,
+      y = predicted,
+      ymin = conf.low,
+      ymax = conf.high,
+      colour = group)
+  ) +
+  
+  # data
+  geom_point(
+    data = potato,
+    mapping = aes(
+      x = Variety,
+      y = Yield,
+      colour = Variety
+    ),
+    pch = 4
+  ) +
+  
+  # prettying
+  theme(legend.position = "none") +
+  xlab("") +
+  ylab("Yield") +
+  ggtitle("Predicted mean yields for varieties (with Fert = 'Cl')") +
+  coord_flip()
+
+```
+
+
+#### Plot of Fertiliser means
+
+Now we'll plot the fertiliser means.
+
+```{r}
+m2_effects <- ggeffect(m2_TMB) |> as.data.frame()
+
+p2 <- ggplot() +
+  geom_pointrange(
+    data = m2_effects,
+    mapping = aes(x = Fert.x,
+                  y = Fert.predicted,
+                  ymin = Fert.conf.low,
+                  ymax = Fert.conf.high),
+    size = 1) +
+  geom_point(
+    data = potato,
+    mapping = aes(x = Fert,
+                  y = Yield,
+                  group = Variety,
+                  colour = Variety),
+    pch = 4,
+    position = position_dodge(.8)
+  ) +
+  xlab("Fertiliser") + 
+  ylab("Yield")
+  
+p2
+
+```
+
+
+#### Plot of Fertiliser-by-Variety means
+
+Now we'll plot the Fertiliser-by-variety means.
+
+```{r}
+m2_effects_all <- ggpredict(
+  m2_TMB, 
+  terms = c("Fert", "Variety"), 
+  type = "random",
+  interval = "confidence"
+  ) |> 
+  as.data.frame()
+
+p2 + 
+  geom_pointrange(
+    data = m2_effects_all,
+    mapping = aes(x = x,
+                  y = predicted,
+                  colour = group,
+                  ymin = conf.low,
+                  ymax = conf.high),
+    position = position_dodge(.8),
+    alpha = .7
+    ) 
+  
+
 ```
 
 
 I think my daughter would like this plot. If there were any unicorn statisticians out there, they'd make plots like this.
+
+
+#### A note on `marginaleffects`
+
+`marginaleffects` is a useful package for estimating different means of interest. See https://vincentarelbundock.github.io/marginaleffects/index.html for more details. 
+
+Be aware though that, in the past few weeks, there have been some problems highlighted regarding the way standard errors are calculated with `glmmTMB` (<https://github.com/glmmTMB/glmmTMB/issues/915>).
+
 
 # Exercises
 
@@ -466,11 +674,10 @@ I think my daughter would like this plot. If there were any unicorn statistician
 
 The `Tree.txt` dataset available on Stream refers to a two-way factorial design experiment where a researcher investigated the influence of device and operator on the trees height measurements.  Five different types of devices were combined with four operators resulting in 20 combinations (treatments). Each treatment was repeated 10 times, as each combination of device and operator was used to measure 10 trees. 
 
-
 a)	Read the dataset into R and name the data.frame as “Trees”. You will need to change the data format from “wide” to “long”. Use the following commands to do so.
 
 ```{r, eval=TRUE}
-Trees <- read.table("Trees.txt", header = TRUE)
+Trees <- read.table("https://www.massey.ac.nz/~anhsmith/data/Trees.txt", header = TRUE)
 ```
 
 ```{r}
