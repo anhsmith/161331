@@ -547,7 +547,7 @@ Or use the `marginaleffects()` function to extract the subject-specific slopes (
 marginaleffects(lmer_mixreg2, by="Subject") |>  summary()
 ```
 
-The fitted slopes for each subject are in the column headed 'Effect'. The estimated slope for subject 1 was 2.09 (with a 95% confidence interval of 1.66, 2.52), subject 2 was 1.04 (0.65, 1.43), etc. This can be interpreted as the pain increasing by 2.09 units per hour for subject 1, and 1.04 units per hour for subject 2, etc. 
+The fitted slopes for each subject are in the column headed 'Estimate'. The estimated slope for subject 1 was 2.09 (with a 95% confidence interval of 1.66, 2.52), subject 2 was 1.04 (0.65, 1.43), etc. This can be interpreted as the pain increasing by 2.09 units per hour for subject 1, and 1.04 units per hour for subject 2, etc. 
 
 ### Residuals
 
@@ -591,7 +591,7 @@ summary(lmm3)
 Let's see whether there is any evidence in support of having the random slopes term. 
 
 ```{r}
-anova(lmm3,mixreg2)
+anova(lmm3, mixreg2)
 ```
 The p-value is fairly low here. Does that mean we should assume that subjects have *exactly the same* average rate of change in pain per hour? 
 
@@ -613,27 +613,7 @@ First, we'll need to fit a linear fixed-effects model, and then we'll need to ex
 flm <- lm(Pain ~ Hour * Subject, data = dt)
 ```
 
-
-```{r}
-marginaleffects(
-    flm,
-    variable="Hour",
-    by="Subject"
-    ) #|> 
-  # transmute(
-  #     Subject, 
-  #     Value="contrast", 
-  #     Parameter="Slope", 
-  #     Model="Fixed"
-  #     )
-
-marginaleffects(
-    lmer_mixreg2,
-    variable="Hour",
-    by="Subject"
-    )
-```
-
+The following code is a little tricky, so don't worry too much if you don't follow it. The point is that we're comparing the estimates of the parameters (i.e., slopes and intercepts) when subjects are treated as a fixed effect vs a random effect.  
 
 ```{r}
 # Extract intercepts and slopes from fixed and mixed models
@@ -644,11 +624,12 @@ pars_fix_rand <- bind_rows(
     variable="Hour",
     by="Subject"
     ) |> 
+    as.data.frame() |> 
     transmute(
       Subject, 
-      Value="contrast", 
-      Parameter="Slope", 
-      Model="Fixed"
+      Value = estimate, 
+      Parameter = "Slope", 
+      Model = "Fixed"
       ),
   
   marginaleffects(
@@ -656,9 +637,10 @@ pars_fix_rand <- bind_rows(
     variable="Hour",
     by="Subject"
     ) |> 
+    as.data.frame()  |> 
     transmute(
       Subject, 
-      Value=dydx, 
+      Value=estimate, 
       Parameter="Slope", 
       Model="Random"
       ),
@@ -719,11 +701,13 @@ Finally, let's compare the actual regression lines between the fixed vs mixed mo
 ```{r}
 # get predictions from fixed and random models
 preds_fix_rand <- bind_rows(
-  predictions(mixreg2) |> 
-    select(Subject, Hour, Pain=predicted) |> 
+  predictions(mixreg2, vcov = vcov(mixreg2)) |> 
+    as.data.frame() |> 
+    select(Subject, Hour, Pain=estimate) |> 
     mutate(Model="Random") ,
-  predictions(flm) |> 
-    select(Subject, Hour, Pain=predicted) |> 
+  predictions(flm, vcov = vcov(flm)) |> 
+    as.data.frame() |> 
+    select(Subject, Hour, Pain=estimate) |> 
     mutate(Model="Fixed")
 )
 

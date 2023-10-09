@@ -480,10 +480,12 @@ library(ggeffects)
 
 ggeffect(m2_TMB)
 ```
-You can also make simple plots from a ggeffects object.
+You can also make simple plots from a `ggeffects` object.
 
 ```{r}
-ggeffect(m2_TMB) |> plot()
+ggeffect(m2_TMB) |> plot(add.data=T, jitter = T)
+# newer versions of this function have different arguments
+# E.g., `add.data` is now `show_data` 
 ```
 
 
@@ -660,6 +662,18 @@ p2 +
 
 I think my daughter would like this plot. If there were any unicorn statisticians out there, they'd make plots like this.
 
+Again, simple plots can be made with `plot()` applied to `ggpredict` objects (but it is a little buggy).
+
+```{r}
+ggpredict(
+  m2_TMB, 
+  terms = c("Variety", "Fert"), 
+  type = "random",
+  interval = "confidence"
+  ) |> 
+  plot(facet=T, add.data = T) + 
+  coord_flip()
+```
 
 #### A note on `marginaleffects`
 
