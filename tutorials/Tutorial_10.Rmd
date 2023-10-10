@@ -181,10 +181,10 @@ These tests implicitly treat every term as fixed, so we can ignore the test resu
 However, we can use this output to compute the variance components as follows.
 
 ```{r, echo=TRUE}
-MS_fertiliser <- 0.7170
-MS_variety <- 3.9671
-MS_interaction <- 0.0910
-MS_error <- 0.3420
+MS_fertiliser <- anova(m1)["Fert","Mean Sq"] # 0.1748
+MS_variety <- anova(m1)["Variety","Mean Sq"] # 3.9671
+MS_interaction <- anova(m1)["Variety:Fert","Mean Sq"] # 0.0996
+MS_error <- anova(m1)["Residuals","Mean Sq"] # 0.3544
 n=3 #3 replicates for each combination of levels
 a=3 # number of levels in the fixed factor A (Fert)
 ```
