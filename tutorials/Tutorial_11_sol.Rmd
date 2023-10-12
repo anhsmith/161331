@@ -758,9 +758,11 @@ Remember, you're now fitting 5 x 3 = 15 subject effects, so be sure to remove th
 4. Finally, compare the best `lmmx` model to the `mixreg2` model. 
 
 
-## Solutions
+# Solutions to Exercise
 
-Fit the compound-symmetry-covariance model.
+## Fit models 
+
+### Fit the compound-symmetry-covariance model
 
 ```{r}
 lmm2 <- glmmTMB(Pain ~ Time + cs(0 + Time | Subject), 
@@ -770,7 +772,7 @@ summary(lmm2)
 ```
 
 
-Fit the unstructured-covariance model.
+### Fit the unstructured-covariance model
 
 ```{r}
 lmm3 <- glmmTMB(Pain ~ Time + us(0 + Time | Subject), 
@@ -779,15 +781,112 @@ lmm3 <- glmmTMB(Pain ~ Time + us(0 + Time | Subject),
 summary(lmm3)
 ```
 
-Compare the mixed models.
+## Compare models
+
+First, we'll compare the mixed ANOVA models.
 
 ```{r}
 anova(lmm1,lmm2,lmm3)
 ```
+It looks like model `lmm3`, with the unstructured covariance matrix, is the best here. It has the lowest AIC score, and is significantly better than the model with the compound-symmetric covariance matrix (`lmm2`).
 
-Compare the unstructured-covariance model to the mixed-regression model. 
+We might also compare the unstructured-covariance model to the mixed-regression model we fit earlier. 
 
 ```{r}
 anova(mixreg2,lmm3)
+```
+It looks like the largest model here (`lmm3`) wins again.
+
+Model `lmm3` fits a unique within-subject correlations for each pair of time steps is the winner. You can see these correlations under `Corr` in the `summary()` output.
+
+```{r}
+summary(lmm3)
+```
+What do those correlations represent?
+
+This model fits random effects for each Subject *for each Time point*. 
+
+Let's look at the random effects.
+
+```{r}
+ranef(lmm3)
+```
+The pain score for Subject 5 at 3 PM (i.e., 51) is 8.4 units above the average of the 3 PM pain scores. 
+
+The average of the 3 PM pain scores is 42.6. 
+
+42.6 + 8.4 = 51. 
+
+```{r}
+dt |> filter(Subject==5 & Time == "3 PM") |> pull(Pain)
+```
+When you look at the random effects of subjects, you can see that the three columns are correlated with each other. The subjects with the larger random effects at 3 PM tend to have the larger random effects at 5 PM and 7 PM. *Those are the correlations that are captured by the correlation matrix.*
+
+If we take the random effects matrix and calculate the correlations, we can reproduce the correlations that appear in the summary output. 
+
+```{r}
+ranef(lmm3)$cond$Subject |> cor() |> round(2)
+```
+## Plot predictions for `lmm3`
+
+Let's make a plot of the means for each time, with the points coloured by subject. 
+
+First, we'll get the estimates of means and confidence intervals. Here, I've used the `ggeffects` package, but there are other ways. 
+
+```{r}
+library(ggeffects)
+
+gge_lmm3 <- ggpredict(
+  lmm3,
+  terms = "Time",
+  type = "fixed",
+  interval = "confidence"
+  ) 
+
+gge_lmm3
+```
+Here's an easy way to make a plot.
+
+```{r}
+plot(gge_lmm3, add.data = T, jitter = T)
+```
+
+To make a more sophisticated plot (with points coloured by Subjects), we'll need to do it by hand. 
+
+First, convert the `ggeffects` object into a dataframe.
+
+```{r}
+gge_lmm3_df <- gge_lmm3 |> as.data.frame()
+```
+
+And now make a plot of the predictions and then add the points.
+
+```{r}
+ggplot() +
+  
+  # add predicted values as points and error bars
+  geom_pointrange(
+    data = gge_lmm3_df,
+    mapping = aes(
+      x = x,
+      y = predicted,
+      ymin = conf.low,
+      ymax = conf.high)
+  ) +
+  
+  # add original data points coloured by Subjects
+  geom_point(
+    data = dt,
+    mapping = aes(
+      x = Time, 
+      y = Pain, 
+      colour = Subject),
+    position = position_dodge(width = .3)
+    ) +
+  
+  # add axis labels
+  xlab("Time") +
+  ylab("Pain")
+
 ```
 
