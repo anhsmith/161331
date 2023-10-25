@@ -280,7 +280,7 @@ glmmTMB3_potato <- update(glmmTMB2_potato, . ~ . - Fert)
 summary(glmmTMB3_potato)
 ```
 
-And do the test.
+And do the likelihood ratio test of the two models.
 
 ```{r}
 anova(glmmTMB3_potato, glmmTMB2_potato)
@@ -290,9 +290,9 @@ The hypothesis test is not significant at the 5% level (P > 0.05). The model wit
 
 Moreover, the information criteria (AIC and BIC) indicate that there is little evidence that having fertiliser in the model helps to predict yield, as the model without fertiliser has lower AIC and BIC scores.
 
-Now, should we retain `Fert` in our model when we test for `Variety`? The p-value for `Fert` was 0.08. This is not enough to establish statistical significance at the 5% level, but it is not far off. We cannot assume that that the fertiliser treatment has *no* effect. Absence of evidence is not evidence of absence, after all. 
+Now, should we retain `Fert` in our model when we test for `Variety`? The p-value was 0.55, which really is no evidence at all for a difference. However, this does not mean we can assume that that the fertiliser treatment does indeed have *no* effect. Absence of evidence is not evidence of absence, after all. 
 
-In this situation, a commonly used rule of thumb for deciding whether to remove a non-significant term in a model is a p-value > 0.25. So, for testing `Variety`, we'll keep `Fert` in the model.
+In this situation, a commonly used rule of thumb for deciding whether to remove a non-significant term in a model is a p-value > 0.25. So, normally, we'd feel comfortable removing `Fert` from the model before testing `Variety`. However, in this case, we'll keep `Fert` in the model for the rest of the tutorial, just so we can use it to make plots of means, etc.
 
 
 ### Testing the random effect of variety
@@ -338,15 +338,15 @@ The lower `Conditional model` table shows the fixed effects of `Fert`. There are
 
 R has done its usual method of setting one level as the 'reference' level. This is a big difference between how random and fixed effects are parameterised. There is no reference level for a random effect, like there is for a fixed effect. Random effects sum to zero.
 
-In the case of `Fert`, the reference level is `B` for 'basal manure'. So, the row `(Intercept)` gives the estimate of the mean yield of level `B`. In this case, the average yield for data points with basal manure was 3.08.
+In the case of `Fert`, the reference level is `B` for 'basal manure'. So, the row `(Intercept)` gives the estimate of the mean yield of level `B`. In this case, the average yield for data points with basal manure was 2.95.
 
 The next two rows are the estimated effects of the other two levels, relative to the reference level. 
 
-The coefficient `FertCl` is the difference between the mean of level `Cl` (chloride addition) and the mean of reference level `B`. The estimated mean of level `Cl` is therefore 3.08 - 0.27 = 2.81. This effect has a p-value < 0.05, so there is evidence that adding chloride reduces yield, on average.
+The coefficient `FertCl` is the difference between the mean of level `Cl` (chloride addition) and the mean of reference level `B`. The estimated mean of level `Cl` is therefore 2.95 + 0.08 = 3.03. This effect has a large p-value, so there is no evidence that adding chloride affects yield, on average.
 
-The coefficient `FertS` is the difference between the mean of level `S` (sulphur addition) and the mean of reference level `B`. The estimated mean of level `S` is therefore 3.083958 + 0.006319 = 3.09. The large p-value indicates little evidence that adding sulphur affects yield.
+The coefficient `FertS` is the difference between the mean of level `S` (sulphur addition) and the mean of reference level `B`. The estimated mean of level `S` is therefore 2.95 + 0.14 = 3.09. The p-value > 0.05 indicates little evidence that adding sulphur affects yield.
 
-These effects are estimated irrespective of the two random terms. They are not estimates for any particular variety. They are the estimated 'global' or 'marginal' means for each fertiliser, removing any effect of variety is added. 
+These effects are estimated irrespective of the two random terms. They are not estimates for any particular variety. They are the estimated 'global' or 'marginal' means for each fertiliser, removing any effect of variety. 
 
 However, that isn't to say that the tests of the effects of fertiliser do take the random terms into account. If we fit a model without the random effect of variety, we wouldn't get the same result. 
 
@@ -354,14 +354,15 @@ Let's see what happens to the tests when we omit `Variety` from the model altoge
 
 
 
-
 ```{r}
 glmmTMB(Yield ~ Fert, data = potato) %>% summary
 ```
 
-The estimates of the effects of fertiliser are the same if we remove the random effect of variety, but the p-values go up!
+The estimates of the effects of fertiliser are the same if we remove the random effect of variety, but the standard errors have changed and the p-values have gone up!
 
-A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.277; without variety, it is 0.651. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
+A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.289; without variety, it is 0.651. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
+
+Also, excluding variety from the model means to completely ignore the fact that the experiment had more than one variety of potato in it. Sometimes, we retain factors in a model because they're an important part of the structure of the experiment, regardless on whether there's a lot of evidence that this structure is important. It is generally safer to avoid asserting an effect is zero. 
 
 ### Coefficients as means
 
