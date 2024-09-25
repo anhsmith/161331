@@ -265,11 +265,7 @@ lmer(bright ~ 1, data = pulp)
 Instead, we'll use the function `gls` from `nlme` package to create the nested model, since it does not require random effects.
 
 ```{r, echo=TRUE}
-# The packages lme4 and nlme don't play nicely together when they're both loaded, 
-# so lets remove lme4 before loading nlme
-detach(package:lme4, unload=TRUE)
-library(nlme)
-m_nested <- gls(bright ~ 1, data=pulp) 
+m_nested <- nlme::gls(bright ~ 1, data=pulp) 
 m_nested$logLik 
 ```
 
@@ -286,24 +282,33 @@ The likelihood ratio test statistic is as follows.
 G2 = 2*(as.numeric(summary(m3)$logLik) -  m_nested$logLik) 
 G2 
 ```
-
-Remember, the distribution under the null hypothesis is a mixture of $\chi_0^2$ + $\chi_1^2$, thus p-value is given by
-
-```{r, echo=TRUE}
-0.5 * pchisq(G2, df=0, lower.tail = FALSE) + 
-0.5 * pchisq(G2, df=1, lower.tail = FALSE)
-```
+We can test the hypothesis that operators are different to each other (i.e., that the variance component is non-zero) using the likelihood ratio test, which is done by supplying two nested models to the `anova()` function
 
 The small p-value provides evidence against the null hypothesis.  
 
 Our conclusion is that brightness varies among operators.
 
+We'll fit both models again using the `nlme` package, and then use the `anova.lme` function.
 
-```{r, echo=FALSE}
-#This answer can be obtained directly from `anova.lme`. However here need to remember to multiply the p-value by 0.5.
-# This is what the book says, but didn't work for me!
-#anova.lme(refm,nested)
+```{r}
+m_nested <- nlme::gls(bright ~ 1, data=pulp)
+m_random <- nlme::lme(bright ~ 1, random = ~ 1|operator, data=pulp)
+nlme::anova.lme(m_nested, m_random)
 ```
+
+The distribution of the test statistic under the null hypothesis is a mixture of $\chi_0^2$ + $\chi_1^2$, thus the p-value is given by
+
+```{r, echo=TRUE}
+pchisq(G2, df=0, lower.tail = FALSE) + pchisq(G2, df=1, lower.tail = FALSE)
+```
+
+## Likelihood Ratio Tests, REML, and ML
+
+Most of the time, models with random effects are fit using REstricted Maximum Likelihood (REML), rather than Maximum Likelihood (ML). This is because REML gives better (unbiased) estimates of variance components. 
+
+The REML procedure is a two-step process. REML first fits the fixed effects (just the intercept, if there are only random effects in the model), and then it fits the random effects. In contrast, ML fits all parameters (including fixed and random effects) at the same time. Importantly, the `logLik` values will be different when the model is fit with ML rather than REML.
+
+When doing a Likelihood Ratio Test of two models that have different fixed effects, then you should (re)fit those models with ML (add the argument `REML = FALSE`) and use those in the LRT, rather than using the models fit with REML. If the two models only differ with respect to random effects (like we did above), then using the REML models is okay. 
 
 
 # Exercise
