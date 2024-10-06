@@ -59,8 +59,8 @@ Let's see the means and standard deviations of the response variable `bright` fo
 
 
 ```{r}
-pulp %>% 
-  group_by(operator) %>%
+pulp |> 
+  group_by(operator) |>
   summarise(Mean = mean(bright), 
             SD = sd(bright))
 ```
@@ -72,7 +72,7 @@ The means aren't very different, but the standard deviations are very small.
 Now let's make some plots.
 
 ```{r}
-pulp %>% ggplot() +
+pulp |> ggplot() +
   aes(x=operator, y=bright) +
   geom_boxplot()
 ```
@@ -83,7 +83,7 @@ Now, there are only 5 observations per group here, so boxplots are a little sill
 
 
 ```{r}
-pulp %>% ggplot() +
+pulp |> ggplot() +
   aes(x=operator, y=bright) +
   geom_boxplot() +
   geom_jitter(width = 0.1, col = 2)
@@ -98,7 +98,7 @@ Let's fit the model as a fixed effect using `lm`, and use two different function
 
 ```{r, echo=TRUE}
 m1 <- lm(bright ~ operator, data=pulp)
-m1 %>% aov %>% summary
+m1 |> aov() |> summary()
 ```
 
 We can also use the `anova` function to test for an effect of `operator`. 
@@ -132,13 +132,25 @@ Recall the following formula from the lecture, which gives the 'ANOVA' estimate 
 $$
 \hat \sigma_{operator}^2 = \frac {MS_{operator} - MS_{residual}} n
 $$
-where $n$ is number of replicates per group. 
+where $n$ is number of replicates per group. Here, $n$ = 5 because there are five data points for each operator.
+
+```{r}
+pulp |> 
+  group_by(operator) |> 
+  summarise(n = n())
+```
+
+Or, more simply:
+
+```{r}
+table(pulp$operator)
+```
 
 Now calculate the estimate $\hat \sigma_{operator}^2$.
 
 ```{r, echo=TRUE}
 # Make the table again
-m1 %>% aov %>% summary
+m1 |> aov() |> summary()
 
 # And use the Mean Sq values to calculate the variance component
 (0.4467 - 0.1062)/5
@@ -157,7 +169,7 @@ s1 <- summary(a1)
 s1
 ```
 
-This tells R to treat `operator` as an “Error” term. In other words, there is sampling error associated with `operator`, because we have in our dataset only a subset of the total population of operators, and so it should be treated as a random effect. This does not give us a hypothesis test though, and it doesn't actually contain any more information than the `lm %>% aov` table. 
+This tells R to treat `operator` as an “Error” term. In other words, there is sampling error associated with `operator`, because we have in our dataset only a subset of the total population of operators, and so it should be treated as a random effect. This does not give us a hypothesis test though, and it doesn't actually contain any more information than the `lm |> aov` table. 
 
 
 ### Testing a random effect with the F distribution
@@ -193,9 +205,9 @@ If the null hypothesis were true, and you were to repeat this study millions of 
 The p-value is the area underneath the curve of the theoretical distribution greater than the observed value of F. This area is shown in blue in the figure below.
 
 ```{r}
-data.frame(F = seq(0,8,length=200)) %>%
+data.frame(F = seq(0,8,length=200)) |>
   mutate(Density = df(F, 3, 16),
-         `Greater than observed F` = F >= 0.44667/0.10625) %>%
+         `Greater than observed F` = F >= 0.44667/0.10625) |>
   ggplot() +
   aes(x=F, y=Density, fill = `Greater than observed F`) +
   geom_area() +
@@ -206,7 +218,7 @@ data.frame(F = seq(0,8,length=200)) %>%
 ```
 
 
-The p-value is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. This means that, if the null hypothesis were true, the probability of getting an F statistic as large or greater than 0.44667/0.10625 is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) %>% round(.,4)`. The null hypothesis is therefore rejected at the 5% level, and we can conclude that there is some difference in brightness among operators.
+The p-value is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) |> round(4)`. This means that, if the null hypothesis were true, the probability of getting an F statistic as large or greater than 0.44667/0.10625 is `r pf(MS_operator/MS_within, DF_operator, DF_within, lower.tail=FALSE) |> round(4)`. The null hypothesis is therefore rejected at the 5% level, and we can conclude that there is some difference in brightness among operators.
 
 This works, but it's a bit of a nuisance. We usually expect our software to do this sort of stuff for us!
 

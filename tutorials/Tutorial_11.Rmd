@@ -34,7 +34,7 @@ theme_set(theme_bw())
 
 In this tutorial we'll analyse the data from an experiment on how long the analgesic effects of a drug last on five participants. Pain was measured three times: initially at 3 PM, then at 5 PM, and lastly at 7 PM.
 
-`Pain` is the response vairiable, ranging from 0 = ‘no pain’ to 100 = ‘worst possible pain’.
+`Pain` is the response variable, ranging from 0 = ‘no pain’ to 100 = ‘worst possible pain’.
 
 `Time` (3 PM, 5 PM, 7 PM) is a fixed effect (within subject variable). 
 
@@ -50,7 +50,7 @@ First, enter the data into R as a `tibble` in long format.
 dt <- tibble(
     Subject = as_factor(rep(1:5,each=3)),
     Time = as_factor(rep(c("3 PM","5 PM","7 PM"),5)),
-    Pain = c(45, 50, 55, 42, 42, 45, 36, 41, 43, 39, 35, 40, 51, 55, 59)) |> 
+    Pain = c(45, 50, 55, 42, 42, 45, 36, 41, 43, 39, 36, 40, 51, 55, 59)) |> 
   # reorder subject by their pain scores
   mutate(Subject = fct_reorder(Subject,-Pain,mean)) |> 
   # make another version of time: hours = hours since start of experiment
@@ -136,7 +136,7 @@ anova_pain
 
 There are three parts to this output.
 
-1. The first part (`$ANOVA`) is an ANOVA F-test for the treatment factor, `Time`, under the assumption of sphericity. The null hypothesis is that there are no differences in the mean pain scores among times. The p-value is 0.011, so we can reject the null hypothesis and conclude that the mean pain score is different for at least one pair of times.
+1. The first part (`$ANOVA`) is an ANOVA F-test for the treatment factor, `Time`, under the assumption of sphericity. The null hypothesis is that there are no differences in the mean pain scores among times. The p-value is 0.008, so we can reject the null hypothesis and conclude that the mean pain score is different for at least one pair of times.
 
 2. The second part gives the result of `Mauchly's Test for Sphericity`. Sphericity is a condition where the standard deviations of the between-treatment differences (3 PM vs 5 PM, 3 PM vs 7 PM, and 5 PM vs 7 PM) are all the same.
 
@@ -174,7 +174,7 @@ Does it look like sphericity is true here? The standard deviations of the differ
 anova_pain$`Mauchly's Test for Sphericity`
 ```
 
-For this test, the null hypothesis is that sphericity is true. The result of the formal test (in the second part of the output of the `anova_test`) is that we *do not* reject the null hypothesis (p = 0.158). There is no evidence against the assumption of sphericity, so we can report the above p-value of 0.011 for the ANOVA test of the `Time` factor. However, this failure to reject the null might be due to low power, given the small sample size.
+For this test, the null hypothesis is that sphericity is true. The result of the formal test (in the second part of the output of the `anova_test`) is that we *do not* reject the null hypothesis (p = 0.131). There is *no evidence against* the assumption of sphericity, so we can report the above p-value of 0.008 for the ANOVA test of the `Time` factor. However, this failure to reject the null might be due to low power, given the small sample size.
 
 If the p-value of Mauchly's test was < 0.05, we could not assume sphericity. In that case, we would look at the third part for out test of the `Time` effect.
 
@@ -200,7 +200,7 @@ pwc <- dt %>%
     )
 pwc
 ```
-This says that we have little evidence of a difference in mean pain scores between times 3PM and 5PM (p.adj = 0.957), weak evidence between 3PM and 5PM (p.adj = 0.074), and strong evidence between 5PM and 7PM (p.adj = 0.009). 
+This says that we have little evidence of a difference in mean pain scores between times 3PM and 5PM (p.adj = 0.720), weak evidence between 3PM and 5PM (p.adj = 0.074), and strong evidence between 5PM and 7PM (p.adj = 0.006). 
 
 We can show this graphically in the traditional style like so.
 
@@ -373,6 +373,7 @@ ggplot(predall) +
 
 In the above plot, we have predictions from the model for each subject in each time, with confidence intervals. The coloured points are the observed values. The black represents the predicted overall marginal mean. 
 
+
 ## `mixreg1`: A mixed-effects regression model with (correlated) random intercepts and random slopes
 
 The trend in pain through time looks quite close to linear. Do we need to treat time as a factor? Or would it be better to treat time as a numerical variable? The advantage of treating `Time` as a numerical variable rather than a factor is that it would use only 1 degree degree of freedom rather than two. This counts for a lot in an unreplicated design. It might allow us to fit an interaction between `Time` and `Subject`, which we cannot do otherwise. 
@@ -413,44 +414,72 @@ We'll use the numerical variable `Hour` as our predictor here.
 
 ```{r}
 # fit the model
-mixreg1 <- glmmTMB(Pain ~ Hour + (Hour | Subject), data = dt)
-summary(mixreg1)
+glmmtmb_mixreg1 <- glmmTMB(Pain ~ Hour + (Hour | Subject), data = dt)
+summary(glmmtmb_mixreg1)
 ```
 
-Oops, there was a warning that the model had trouble converging. It is slightly overparameterised. Let's think about why. 
+Or with the `lme4::lmer()` function.
+
+```{r}
+# fit the model
+lmer_mixreg1 <- lme4::lmer(Pain ~ Hour + (Hour | Subject), data = dt)
+summary(lmer_mixreg1)
+```
+
+
+### ML vs REML
+
+`glmmTMB` and `lme4` give slightly different results for the random effects part of the model. This is because they use different default methods to fit the model. `glmmTMB` uses maximum likelihood (ML), and `lme4` uses restricted maximum likelihood (REML). For each package though, you can choose whether REML is used by changing the argument `REML = TRUE` or `REML = FALSE`. 
+
+We can change this argument using the `update()` function.
+
+```{r}
+# fit the model
+glmmtmb_mixreg1_reml <- update(glmmtmb_mixreg1, REML = T)
+summary(glmmtmb_mixreg1_reml)
+```
+Now we get the same random effects estimates. 
+
+In general, you should use REML when your interest is in estimating variance components because it gives less biased estimates. You should use ML in the exploratory phase of modelling – fitting different models and comparing them with, say, Likelihood Ratio Tests (LRTs).  
+
+
+### Explanation of the model
 
 This model has, at its core, a population-level regression $\hat{y} = \alpha+\beta x$, averaged across subjects. Here, the estimates are $\hat{y} = 42.3 + 1.45 x$.
 
-On top of the population-level model, there are subject-level random effects on the intercept (with $\hat\sigma_a$ of 5.08) *and* subject-level random effects on the slope (with $\hat\sigma_b$ of 0.60). This is essentially an interaction, where each subject has their own regression model, given by $\hat{y} = (\alpha+a_i)+(\beta+b_i) x$. To get the subject-specific intercept and slope parameters, we simply add the subject-specific random effects to the appropriate population-level parameter. 
+On top of the population-level model, there are subject-level random effects on the intercept (with $\hat\sigma_a$ of 5.70) *and* subject-level random effects on the slope (with $\hat\sigma_b$ of 0.76). This is essentially an interaction, where each subject has their own regression model, given by $\hat{y} = (\alpha+a_i)+(\beta+b_i) x$. Each subject has its own intercept and its own slope. 
+
+To get the subject-specific intercept and slope parameters, we simply add the subject-specific random effects to the appropriate population-level parameter. 
 
 Here are those random effects:
 
 ```{r}
-ranef(mixreg1)
+ranef(glmmtmb_mixreg1_reml)
 ```
 
 
-There's one parameter this model has fit that is not in the model I articulated above: `Corr`. This is a correlation parameter between the $a_i$ and the $b_i$. The estimate for this correlation is = 1, which is very strange. It means that the random slopes and random intercepts are perfectly correlated. 
+There's one parameter this model has fit that is not in the model I articulated above: `Corr`. This is a correlation parameter between the $a_i$ and the $b_i$. The estimate for this correlation is = 0.81. It means that the random slopes and random intercepts are positively correlated. 
 
 Here's the correlation for the random effects of intercepts and slopes:
 
 ```{r}
-ranef(mixreg1)[[1]]$Subject |> cor()
+ranef(glmmtmb_mixreg1_reml)[[1]]$Subject |> cor()
 ```
+
 Here are the lines that are being fit to each subject.
 
 ```{r, warning=F}
-lmer_mixreg1 <- lme4::lmer(Pain ~ Hour + (Hour | Subject),
-                            data = dt)
-
-plot_cap(lmer_mixreg1, 
-         condition = c("Hour", "Subject")
-         ) +
-  geom_point(data=dt, 
-             aes(x=Hour,y=Pain,col=Subject))
+plot_predictions(
+  lmer_mixreg1, 
+  condition = c("Hour", "Subject")
+  ) +
+  geom_point(
+    data=dt, 
+    aes(x=Hour,y=Pain,col=Subject)
+  )
 ```
 
-I would not trust this model! It didn't converged properly, either with `glmmTMB` or `lmer`. It looks like a terrible fit to subject 4. And the complete correlation between intercepts and slopes makes it look pretty weird.
+You can see the correlation between the random slopes and the random intercepts; the lines that are higher (higher intercept) are steeper (higher slopes).
 
 The term `(Hour | Subject)` in the formula automatically fits a random intercept and a random effect on the slope for each subject. It is equivalent to `(1 + Hour | Subject)`. When two effects (here, intercept and slope) are specified in the same term like this, the model automatically fits a correlation.
 
@@ -473,9 +502,12 @@ $$
 )
 \end{equation}
 $$
-where $\sigma_{ab}$ is the covariance between the random effects on the intercept and slope across subjects. (It actually parameterised it as a correlation, rather than a covariance, but this is just a direct transformation.)
 
-This extra correlation/covariance parameter, which we didn't specifically ask for, seems a bridge too far for this model. 
+where $\sigma_{ab}$ is the covariance between the random effects on the intercept and slope across subjects. (It is parameterised in the model as a correlation, rather than a covariance, but covariance to correlation is just a change in scale.)
+
+The high correlation suggests that the increase in pain over time is highest for people with higher pain at time zero.
+
+If we wanted, we could fit the model without the correlation/covariance parameter. Here's how...
 
 ## `mixreg2`: A mixed-effects regression model with uncorrelated random intercepts and random slopes
 
@@ -487,15 +519,18 @@ The term `(1 | Subject)` fits a random intercept but no slope effect.
 
 So, let's put these effects into the model separately.  
 
+
 ```{r}
-mixreg2 <- glmmTMB(
+glmmtmb_mixreg2 <- glmmTMB(
   Pain ~ Hour + (1 | Subject) + (0 + Hour | Subject), 
   data = dt)
 
-summary(mixreg2)
+summary(glmmtmb_mixreg2)
 ```
 
-The correlation parameter has now been removed and the model, and it converged fine. The `df.resid` has increased from 9 to 10. And we have a test for the population-level slope of `Hour`, and it is highly significant with a p-value of 0.0003. 
+The correlation parameter has now been removed and the model (compare this output from this model to the one earlier). The `df.resid` has increased from 9 to 10. And we have a test for the population-level slope of `Hour`, and it is highly significant with a p-value of 0.000233. 
+
+Here's the model fit with the `lme4::lmer()` function.
 
 ```{r}
 lmer_mixreg2 <- lme4::lmer(
@@ -503,14 +538,14 @@ lmer_mixreg2 <- lme4::lmer(
   data = dt)
 
 lmer_predf_mixreg2 <- predictions(lmer_mixreg2, by="Hour")
-lmer_predf_mixreg2 |> summary()
+lmer_predf_mixreg2
 
 ```
 
 Now let's plot the lines fit per subject, adding the raw data and population-level predictions. 
 
 ```{r}
-g1 <- plot_cap(
+g1 <- plot_predictions(
     lmer_mixreg2, 
     condition = c("Hour", "Subject")
     ) +
@@ -536,18 +571,16 @@ g1
 We can see that the model has fit slightly different slopes (and intercepts) to each subject. We can get the random effects on the intercept (`(Intercept)` = $a_i$) and slope (`Hour` = $b_i$) with the `ranef()` function. 
 
 ```{r}
-ranef(mixreg2)
-
 ranef(lmer_mixreg2)
 ```
 
 Or use the `marginaleffects()` function to extract the subject-specific slopes ($\beta + b_i$).
 
 ```{r}
-marginaleffects(lmer_mixreg2, by="Subject") |>  summary()
+slopes(lmer_mixreg2, by="Subject") 
 ```
 
-The fitted slopes for each subject are in the column headed 'Estimate'. The estimated slope for subject 1 was 2.09 (with a 95% confidence interval of 1.66, 2.52), subject 2 was 1.04 (0.65, 1.43), etc. This can be interpreted as the pain increasing by 2.09 units per hour for subject 1, and 1.04 units per hour for subject 2, etc. 
+The fitted slopes for each subject are in the column headed 'Estimate'. The estimated slope for subject 1 was 2.246 (with a 95% confidence interval of 1.66, 2.52), subject 2 was 1.04 (0.65, 1.43), etc. This can be interpreted as the pain increasing by 2.09 units per hour for subject 1, and 1.04 units per hour for subject 2, etc. 
 
 ### Residuals
 
@@ -584,16 +617,16 @@ We might ask: do we need the model to have different slopes for each subject?
 Let's fit a model without random effects on the slope. We'll retain the random effects of subjects on the intercept (i.e., the height of the line) but we'll assume the slope applies to all subjects ($b_i=0,~~\forall~~i$). They all have the average change in pain per hour.
 
 ```{r}
-lmm3 <- glmmTMB(Pain ~ Hour + (1 | Subject), data = dt)
-summary(lmm3)
+glmmtmb_lmm3 <- glmmTMB(Pain ~ Hour + (1 | Subject), data = dt)
+summary(glmmtmb_lmm3)
 ```
 
 Let's see whether there is any evidence in support of having the random slopes term. 
 
 ```{r}
-anova(lmm3, mixreg2)
+anova(glmmtmb_lmm3, glmmtmb_mixreg2)
 ```
-The p-value is fairly low here. Does that mean we should assume that subjects have *exactly the same* average rate of change in pain per hour? 
+The p-value is fairly low but not below the usual 0.05 threshold. Does that mean we should assume that subjects have *exactly the same* average rate of change in pain per hour? 
 
 Which seems like the stronger assumption: change in pain over time (1) is exactly the same for everyone or (2) differs among people. 
 
@@ -701,11 +734,11 @@ Finally, let's compare the actual regression lines between the fixed vs mixed mo
 ```{r}
 # get predictions from fixed and random models
 preds_fix_rand <- bind_rows(
-  predictions(mixreg2, vcov = vcov(mixreg2)) |> 
+  predictions(glmmtmb_mixreg2) |> 
     as.data.frame() |> 
     select(Subject, Hour, Pain=estimate) |> 
     mutate(Model="Random") ,
-  predictions(flm, vcov = vcov(flm)) |> 
+  predictions(flm) |> 
     as.data.frame() |> 
     select(Subject, Hour, Pain=estimate) |> 
     mutate(Model="Fixed")
@@ -723,21 +756,26 @@ dt |>
 
 ### Comparison of models with Time as a factor vs Time as a number
 
-How does `lmm1` differ from `mixreg2`? In `lmm1`, we treated Time as a factor; whereas, in `mixreg2`, we treated time as a numerical predictor.
+How do the models `lmm1`, `mixreg1`, and `mixreg2` differ? 
 
-When we fit a linear model to a numerical predictor, the effect on $y$ of increasing $x$ by 1 unit is constant. In the context of model `mixreg2`, that means that the change in pain was restricted to be the same from 3 PM and 5 PM as from 5 PM to 7 PM. 
+- In `lmm1`, we treated Time as a factor. 
+- In `mixreg1`, we treated time as a numerical predictor, and fit different intercepts and slopes for each subject. There was a parameter capturing the correlation between intercepts and slopes across the subjects. This correlation parameter in `mixreg2`. 
+
+When we fit a linear model to a numerical predictor, the effect on $y$ of increasing $x$ by 1 unit is constant. In the context of `mixreg1` and `mixreg2`, that means that the change in pain was restricted to be the same from 3 PM and 5 PM as from 5 PM to 7 PM. 
+
 In contrast, when we fit a model to a factor, there is no such restriction. The levels of the factor are 'exchangeable', meaning there is no inherent order to the levels. The means of $y$ fitted to the levels can increase or decrease more or less independently.
 
 So which model is more complex, and which provided a better fit? 
 
-We can use the `anova` function. 
+We can use the `anova` function to do a series of Likelihood Ratio Tests (LRTs). 
 
 ```{r}
-anova(lmm1,mixreg2)
+anova(lmm1, glmmtmb_mixreg1, glmmtmb_mixreg2)
 ```
+`lmm1` and `mixreg2` have the same number of parameters (so the same `df`). So, the test comes down to which has the better fit to the data. There is very little in it, but the mixed regression model that allowed for constant, linear change in pain through time, with the slope and intercept randomly varying among subjects, provided a slightly better fit to the data (lower deviance). 
 
+Then, `mixreg1` had the extra correlation parameter. It gave only a marginally better fit than `mixreg2`. However, despite the p-value not showing that `mixreg2` is significantly better than `mixreg1`, I would probably favour `mixreg1` anyway, since the p-value was quite low, the estimated correlation was quite large, and the correlation it represents makes some intuitive sense.
 
-Both these models have the same number of parameters, so it comes down to which has the better fit to the data. There is very little in it, but the mixed regression model that allowed for constant, linear change in pain through time, with the slope and intercept randomly varying among subjects, provided a slightly better fit to the data (lower deviance). 
 
 # Exercise: revisiting the mixed model with `Time` as a factor
 

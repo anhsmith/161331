@@ -58,14 +58,16 @@ str(potato)
 ```
 The `Yield` of potato is the response variable. There are 108 observations, one continuous response variable, and three factors: 
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Variety`, the variety of the potato plant,
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Fert` is the fertiliser that was used, and
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Variety`, the variety of the potato plant,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Fert` is the fertiliser that was used, and<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Patch` identifies the piece of ground that the observation came from.
 
 
 We will model `Yield` based on `Variety` and `Fert`. 
 
-There are over 4000 potato varieties, and so we might wish to make inference about variation  the population of varieties. If we were interested specifically in the 12 varieties in the experiment, then we'd treat `Variety` as a fixed effect. Treatment factors, like fertiliser, are almost always treated as fixed. 
+There are over 4000 potato varieties in the world, and so we might wish to make inference about variation the population of varieties, rather than just the 12 varieties in the experiment. If we *were* interested specifically in the 12 varieties in the experiment, then we'd treat `Variety` as a fixed effect. 
+
+Treatment factors, like fertiliser, are almost always treated as fixed. 
 
 The three fertilisers are `B` = 'basal manure', a control treatment; `Cl` = 'chloride addition'; and `S` = 'sulfur addition'.
 
@@ -79,7 +81,7 @@ First, let's see if these two factors are crossed or nested.
 table(potato$Variety, potato$Fert)
 ```
 
-Although it's not a balanced design, `Fert` and `Variety` are crossed because there are data points in each combination of the levels of the two factors - every variety was grown with every fertiliser.
+`Fert` and `Variety` are crossed because there are data points in each combination of the levels of the two factors - every variety was grown with every fertiliser. It is a balanced design, because there are three data points per combination of fertiliser and variety. 
 
 Here's a basic plot of the data for each fertiliser, with a panel for each variety. 
 
@@ -197,9 +199,7 @@ a=3 # number of levels in the fixed factor A (Fert)
 MS_error # Variance component for error
 ```
 
-We see that one of the estimates is negative. Variances cannot be negative. A negative variance would imply that the effects are less than zero, that the group means are closer together than exactly the same.
-
-Also, this design is *not* balanced, so we cannot really use these formulae in a formal analysis (we have just used n=3 above, but n varies from cell to cell). It is possible to adjust the ANOVA estimates according to an unbalanced design, but it is rather fiddly so we will not go into it here. Let's instead fit the model using more modern approaches.
+We see that one of the variance component estimates is negative. Variances cannot be negative. A negative variance would imply that the effects are less than zero, that the group means are closer together than exactly the same.
 
 
 ## Fitting the full model with `lme4`
@@ -360,7 +360,7 @@ glmmTMB(Yield ~ Fert, data = potato) %>% summary
 
 The estimates of the effects of fertiliser are the same if we remove the random effect of variety, but the standard errors have changed and the p-values have gone up!
 
-A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.289; without variety, it is 0.651. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
+A random effect, even if it's of no interest, can be very important. Remember, the precision of our estimates and the power of our hypothesis tests are hampered by unexplained variation. In the model with variety in it, the residual variance is 0.289; without variety, it is 0.661. That's a lot more unexplained variation. Therefore, if the model is fit ignoring variety, there's a lot more noise and the signal is less clear.
 
 Also, excluding variety from the model means to completely ignore the fact that the experiment had more than one variety of potato in it. Sometimes, we retain factors in a model because they're an important part of the structure of the experiment, regardless on whether there's a lot of evidence that this structure is important. It is generally safer to avoid asserting an effect is zero. 
 
@@ -678,9 +678,9 @@ ggpredict(
 
 #### A note on `marginaleffects`
 
-`marginaleffects` is a useful package for estimating different means of interest. See https://vincentarelbundock.github.io/marginaleffects/index.html for more details. 
+`marginaleffects` is a useful package for estimating different means of interest. See https://marginaleffects.com/index.html for more details. 
 
-Be aware though that, in the past few weeks, there have been some problems highlighted regarding the way standard errors are calculated with `glmmTMB` (<https://github.com/glmmTMB/glmmTMB/issues/915>).
+Be aware though that, in 2023, there have been some problems highlighted regarding the way standard errors are calculated with `glmmTMB` (<https://github.com/glmmTMB/glmmTMB/issues/915>).
 
 
 # Exercises
