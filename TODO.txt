@@ -1,0 +1,9 @@
+IN TUTORIAL 12
+
+Add this model:
+
+~ 0 + Depth + (0 + Depth | location ), dispformula = ~0
+
+
+and then simplify the tutorial
+

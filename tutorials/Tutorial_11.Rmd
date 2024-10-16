@@ -206,6 +206,7 @@ We can show this graphically in the traditional style like so.
 
 ```{r }
 pwc <- pwc %>% add_xy_position(x = "Time")
+
 gbox + 
   stat_pvalue_manual(pwc) +
   labs(
@@ -236,11 +237,11 @@ $$
 
 where
 
-$y_{ijk}$ is the pains score from Time $i$, Subject $j$,
+$y_{ij}$ is the pains score from Time $i$, Subject $j$,
 
 $\alpha_{i}$ is the effect of Time $i$,
 
-$b_{j(i)}$ is the effect of Subject $j$,
+$b_{j}$ is the effect of Subject $j$,
 
 $\sigma^2_B$ is the variance component for Subject,
 
@@ -269,31 +270,28 @@ We can extract these predictions with confidence intervals like so.
 # glmmTMB not playing with marginaleffefcts
 lmer1 <- lme4::lmer(Pain ~ Time + (1 | Subject), data=dt)
 
-predf <- predictions(lmer1, by="Time")
+predf <- avg_predictions(lmer1, by="Time")
 ```
+
 
 And plot the marginal means with confidence intervals (after 'removing' subject effects) in black as follows. 
 
 ```{r}
 gline +
-  geom_point(
+  geom_pointrange(
     data = predf, 
-    aes(x=Time, y=estimate), inherit.aes = F, size=4
+    aes(x=Time, y=estimate, ymin=conf.low, ymax=conf.high), 
+    inherit.aes = F, 
+    size=1.1
     ) +
   geom_line(
     data =predf, 
     aes(x=as.numeric(Time), y=estimate), 
     inherit.aes = F
-    ) +
-  geom_errorbar(
-    data =predf, 
-    aes(x=Time, ymin=conf.low, ymax=conf.high), 
-    width=0, 
-    inherit.aes = F
     ) 
 ```
 
-It looks like the average pain increased slightly more from 5 and 7 PM then from 5 and 3 PM. Although, with such a small dataset, this may be driven solely by Subject 4, who seemed to be feeling unusually good at 5 PM.
+It looks like the average pain increased slightly more from 5 and 7 PM than from 5 and 3 PM. Although, with such a small dataset, this may be driven solely by Subject 4, who seemed to be feeling unusually good at 5 PM.
 
 ### Interpreting the random effects
 
@@ -321,13 +319,17 @@ Let's plot the subject effects and confidence intervals.
 ```{r , fig.width=5, fig.height=1.8}
 predr |> 
   ggplot() + 
-  aes(x=Subject,y=pred.mar,col=Subject) +
-  geom_point() +
-  geom_errorbar(aes(ymin=conf.low.mar,
-                    ymax=conf.high.mar),
-                width=0) +
+  aes(
+    x = Subject,
+    y = pred.mar,
+    ymin = conf.low.mar,
+    ymax = conf.high.mar,
+    col = Subject
+    ) +
+  geom_pointrange(width=0) +
   ylab("Subject effects") +
-  theme(legend.position="none") + coord_flip()
+  theme(legend.position="none") + 
+  coord_flip()
 ```
 
 
@@ -343,31 +345,28 @@ predall
 ggplot(predall) +
   aes(x = Time, 
       y = estimate, 
-      col=Subject, 
-      group=Subject
+      col = Subject, 
+      group = Subject
       ) +
   geom_ribbon(
-    aes(ymin=conf.low, 
-        ymax=conf.high, 
-        col=NULL,
+    aes(ymin = conf.low, 
+        ymax = conf.high, 
+        col = NULL,
         fill = Subject), 
-    width=0, alpha=.3
+    alpha=.3
     ) +
   geom_line() + 
   geom_point(data=dt, 
              aes(y=Pain)
              ) +
-  geom_point(data =predf, 
-             aes(x=Time, y=estimate), 
-             inherit.aes = F, size=4
-             ) +
-  geom_line(data =predf, 
+  geom_line(data = predf, 
             aes(x=as.numeric(Time), y=estimate), 
             inherit.aes = F
             ) +
-  geom_errorbar(data =predf,
-                aes(x=Time, ymin=conf.low, ymax=conf.high),
-                width=0, inherit.aes = F)
+  geom_pointrange(data = predf, 
+             aes(x=Time, y=estimate, ymin=conf.low, ymax=conf.high), 
+             inherit.aes = F, size = 1.1
+             ) 
  
 ```
 
